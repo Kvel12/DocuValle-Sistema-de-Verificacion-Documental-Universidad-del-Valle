@@ -1,0 +1,41 @@
+steps:
+  # Build del backend
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/apt-cubist-368817/docuvalle-backend/backend:$COMMIT_SHA', './backend']
+  
+  # Push del backend a Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/apt-cubist-368817/docuvalle-backend/backend:$COMMIT_SHA']
+  
+  # Deploy a Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args: 
+    - 'run'
+    - 'deploy'
+    - 'docuvalle-backend'
+    - '--image'
+    - 'us-central1-docker.pkg.dev/apt-cubist-368817/docuvalle-backend/backend:$COMMIT_SHA'
+    - '--region'
+    - 'us-central1'
+    - '--platform'
+    - 'managed'
+    - '--allow-unauthenticated'
+
+  # Build del frontend
+  - name: 'node:18'
+    entrypoint: 'npm'
+    args: ['install']
+    dir: 'frontend'
+    
+  - name: 'node:18'
+    entrypoint: 'npm'
+    args: ['run', 'build']
+    dir: 'frontend'
+    
+  # Deploy a Firebase Hosting
+  - name: 'gcr.io/$PROJECT_ID/firebase'
+    args: ['deploy', '--only', 'hosting']
+
+options:
+  logging: CLOUD_LOGGING_ONLY
