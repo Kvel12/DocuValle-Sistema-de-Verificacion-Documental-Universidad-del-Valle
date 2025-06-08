@@ -1,0 +1,417 @@
+/* Estilos para DocuValle - Página de prueba del sistema */
+/* Estos estilos crean una interfaz clara y profesional para probar todas las funcionalidades */
+
+.App {
+  text-align: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  color: white;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.App-header {
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 2rem 1rem;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.App-header h1 {
+  margin: 0;
+  font-size: 2.5rem;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.App-header p {
+  margin: 0.5rem 0 0 0;
+  font-size: 1.2rem;
+  opacity: 0.9;
+}
+
+.App-main {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+/* Panel de estado de conexiones */
+.conexiones-panel {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 15px;
+  padding: 2rem;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.conexiones-panel h2 {
+  margin-top: 0;
+  color: #fff;
+  font-size: 1.5rem;
+}
+
+.btn-probar {
+  background: linear-gradient(45deg, #4CAF50, #45a049);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.btn-probar:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+}
+
+.estado-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  text-align: left;
+}
+
+.estado-item {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1rem;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.estado-indicador {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* Panel de subida de archivos */
+.upload-panel {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 15px;
+  padding: 2rem;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.upload-panel h2 {
+  margin-top: 0;
+  color: #fff;
+  font-size: 1.5rem;
+}
+
+.dropzone {
+  border: 3px dashed rgba(255, 255, 255, 0.5);
+  border-radius: 15px;
+  padding: 2rem;
+  margin: 1.5rem 0;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dropzone:hover {
+  border-color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dropzone.activa {
+  border-color: #4CAF50;
+  background: rgba(76, 175, 80, 0.1);
+  transform: scale(1.02);
+}
+
+.dropzone.con-archivo {
+  border-color: #2196F3;
+  background: rgba(33, 150, 243, 0.1);
+}
+
+.zona-dropzone p {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.zona-dropzone small {
+  display: block;
+  margin-top: 0.5rem;
+  opacity: 0.7;
+  font-size: 0.9rem;
+}
+
+.archivo-seleccionado {
+  text-align: left;
+  background: rgba(33, 150, 243, 0.2);
+  padding: 1.5rem;
+  border-radius: 10px;
+}
+
+.archivo-seleccionado h3 {
+  margin-top: 0;
+  color: #fff;
+}
+
+.archivo-seleccionado p {
+  margin: 0.5rem 0;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.btn-limpiar {
+  background: linear-gradient(45deg, #ff6b6b, #ff5252);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-top: 1rem;
+}
+
+.btn-limpiar:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.btn-procesar {
+  background: linear-gradient(45deg, #2196F3, #1976D2);
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 10px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-top: 1rem;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.btn-procesar:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+}
+
+.btn-procesar:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-procesar.procesando {
+  background: linear-gradient(45deg, #ff9800, #f57c00);
+  animation: pulso 1.5s infinite;
+}
+
+@keyframes pulso {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+/* Panel de resultados */
+.resultados-panel {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 15px;
+  padding: 2rem;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: left;
+}
+
+.resultados-panel h2 {
+  margin-top: 0;
+  color: #fff;
+  text-align: center;
+  font-size: 1.5rem;
+}
+
+.resultado-exitoso {
+  background: rgba(76, 175, 80, 0.2);
+  border: 1px solid rgba(76, 175, 80, 0.5);
+  border-radius: 10px;
+  padding: 1.5rem;
+}
+
+.resultado-exitoso h3 {
+  margin-top: 0;
+  color: #4CAF50;
+}
+
+.resultado-error {
+  background: rgba(244, 67, 54, 0.2);
+  border: 1px solid rgba(244, 67, 54, 0.5);
+  border-radius: 10px;
+  padding: 1.5rem;
+}
+
+.resultado-error h3 {
+  margin-top: 0;
+  color: #f44336;
+}
+
+.detalles-resultado p {
+  margin: 0.75rem 0;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.detalles-resultado a {
+  color: #64B5F6;
+  text-decoration: none;
+}
+
+.detalles-resultado a:hover {
+  text-decoration: underline;
+}
+
+.texto-extraido {
+  margin-top: 1.5rem;
+}
+
+.texto-extraido h4 {
+  margin-bottom: 0.75rem;
+  color: #fff;
+}
+
+.textarea-resultado {
+  width: 100%;
+  min-height: 200px;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: white;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.textarea-resultado:focus {
+  outline: none;
+  border-color: #2196F3;
+  box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.3);
+}
+
+.detalles-error {
+  margin-top: 1rem;
+}
+
+.detalles-error summary {
+  cursor: pointer;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 5px;
+  margin-bottom: 0.5rem;
+}
+
+.detalles-error pre {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 1rem;
+  border-radius: 5px;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  color: #ffcdd2;
+}
+
+/* Panel de información */
+.info-panel {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 15px;
+  padding: 2rem;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: left;
+}
+
+.info-panel h2 {
+  margin-top: 0;
+  color: #fff;
+  text-align: center;
+  font-size: 1.5rem;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+}
+
+.info-item {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1.5rem;
+  border-radius: 10px;
+}
+
+.info-item h3 {
+  margin-top: 0;
+  color: #fff;
+  font-size: 1.2rem;
+}
+
+.info-item ul,
+.info-item ol {
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.6;
+}
+
+.info-item li {
+  margin: 0.5rem 0;
+}
+
+/* Footer */
+.App-footer {
+  background-color: rgba(0, 0, 0, 0.2);
+  padding: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 2rem;
+}
+
+.App-footer p {
+  margin: 0;
+  opacity: 0.7;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* Responsividad para móviles */
+@media (max-width: 768px) {
+  .App-main {
+    padding: 1rem;
+    gap: 1.5rem;
+  }
+  
+  .App-header h1 {
+    font-size: 2rem;
+  }
+  
+  .App-header p {
+    font-size: 1rem;
+  }
+  
+  .conexiones-panel,
+  .upload-panel,
+  .resultados-panel,
+  .info-panel {
+    padding: 1.5rem;
+  }
+  
+  .estado-grid,
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .dropzone {
+    padding: 1.5rem;
+  }
+  
+  .btn-procesar {
+    width: 100%;
+    padding: 1rem;
+  }
+}

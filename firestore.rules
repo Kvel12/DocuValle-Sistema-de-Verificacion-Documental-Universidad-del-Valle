@@ -1,0 +1,31 @@
+// Reglas de seguridad de Firestore para DocuValle
+// Estas reglas definen quién puede leer y escribir datos en la base de datos
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Colección de documentos procesados
+    // Los usuarios solo pueden ver y editar sus propios documentos
+    match /documentos/{documentoId} {
+      allow read, write: if request.auth != null && 
+                        resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && 
+                   request.auth.uid == resource.data.userId;
+    }
+    
+    // Colección de resultados de procesamiento
+    // Los usuarios solo pueden ver los resultados de sus documentos
+    match /resultados/{resultadoId} {
+      allow read: if request.auth != null && 
+                 resource.data.userId == request.auth.uid;
+      allow write: if false; // Solo el backend puede escribir resultados
+    }
+    
+    // Para desarrollo: permitir lectura/escritura temporal
+    // IMPORTANTE: Cambiar estas reglas en producción por las de arriba
+    match /{document=**} {
+      allow read, write: if true; // Solo para pruebas iniciales
+    }
+  }
+}
