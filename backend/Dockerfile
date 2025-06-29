@@ -56,7 +56,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/api/health || exit 1
 
 # Comando de inicio
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/src/server.js"]
 
 LABEL maintainer="DocuValle Team"
 LABEL version="1.0"
