@@ -69,7 +69,8 @@ steps:
 
   # PASO 8: Desplegar frontend a Firebase Hosting
   - name: 'andreysenov/firebase-tools'
-    args: ['deploy', '--only', 'hosting', '--project', '$PROJECT_ID', '--token', '$_FIREBASE_TOKEN']
+    entrypoint: 'firebase'
+    args: ['deploy', '--only', 'hosting', '--project', '$PROJECT_ID', '--token', '1//05XosnWZntJhpCgYIARAAGAUSNwF-L9IrUM4LZz47t2CT4qNKEISY6-qGkYZJXylGbZkorJQ4xiOGl6RWBrsrNCngoCRaZULL5bM']
     id: 'deploy-frontend'
     waitFor: ['build-frontend']
 
