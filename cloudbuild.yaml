@@ -80,6 +80,6 @@ options:
 
 # Variables que Cloud Build reemplazará automáticamente
 substitutions:
-  _FIREBASE_TOKEN: 'tu-token'  # Lo configuraremos después
+  _FIREBASE_TOKEN: 'token'  # Lo configuraremos después
 
 timeout: '1200s'
