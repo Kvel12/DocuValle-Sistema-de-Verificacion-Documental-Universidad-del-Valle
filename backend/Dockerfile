@@ -1,4 +1,3 @@
-# Dockerfile optimizado para DocuValle Backend
 # Este archivo define cómo se construye y ejecuta la aplicación backend en producción
 
 # ETAPA 1: Construcción (Build Stage)
@@ -19,8 +18,10 @@ COPY tsconfig.json ./
 # Instalar dependencias (incluyendo devDependencies para compilar TypeScript)
 RUN npm ci --only=production=false
 
-# Copiar código fuente
+# Copiar código fuente COMPLETO (incluyendo config/ y services/)
 COPY src/ ./src/
+COPY config/ ./config/
+COPY services/ ./services/
 
 # Compilar TypeScript a JavaScript
 RUN npm run build
@@ -59,14 +60,12 @@ ENV PORT=8080
 # Exponer puerto
 EXPOSE 8080
 
-# Health check - muy importante para Cloud Run
-# Cloud Run usa esto para saber si el servicio está funcionando
+# Health check - CORREGIDO para usar tu endpoint /api/health
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/health || exit 1
+  CMD curl -f http://localhost:8080/api/health || exit 1
 
-# Comando para ejecutar la aplicación
-# Usar node directamente en lugar de npm para mejor control de señales
-CMD ["node", "dist/index.js"]
+# Comando para ejecutar la aplicación - CORREGIDO para usar server.js
+CMD ["node", "dist/server.js"]
 
 # Metadata del contenedor
 LABEL maintainer="DocuValle Team"

@@ -230,6 +230,14 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
   });
 });
 
+// Endpoint de health simple para Cloud Run 
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString() 
+  });
+});
+
 // Función principal para arrancar el servidor
 async function startServer() {
   await initializeServices();
