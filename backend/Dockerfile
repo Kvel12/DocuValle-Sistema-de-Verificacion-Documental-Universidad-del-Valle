@@ -1,73 +1,62 @@
-# Este archivo define cómo se construye y ejecuta la aplicación backend en producción
-
-# ETAPA 1: Construcción (Build Stage)
-# Usamos una imagen más completa para compilar el código TypeScript
+# Dockerfile simplificado para DocuValle Backend
 FROM node:18-alpine AS builder
 
-# Instalar dependencias de sistema necesarias para algunas librerías de Node.js
+# Instalar dependencias necesarias
 RUN apk add --no-cache python3 make g++
 
-# Establecer directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos de configuración de Node.js
-# Copiamos estos archivos primero para aprovechar el cache de Docker
+# Copiar archivos de configuración
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Instalar dependencias (incluyendo devDependencies para compilar TypeScript)
-RUN npm ci --only=production=false
+# Instalar dependencias
+RUN npm ci
 
-# Copiar código fuente COMPLETO (incluyendo config/ y services/)
-COPY src/ ./src/
-COPY config/ ./config/
-COPY services/ ./services/
+# Copiar todo el código fuente
+COPY . .
 
-# Compilar TypeScript a JavaScript
+# Compilar TypeScript
 RUN npm run build
 
-# Limpiar devDependencies que no necesitamos en producción
+# Verificar que la compilación funcionó
+RUN ls -la dist/
+
+# Limpiar dependencias de desarrollo
 RUN npm prune --production
 
-# ETAPA 2: Producción (Production Stage)
-# Usamos una imagen más ligera para ejecutar la aplicación
-FROM node:18-alpine AS production
+# ETAPA DE PRODUCCIÓN
+FROM node:18-alpine
 
-# Crear usuario no-root por seguridad
-# Nunca ejecutar aplicaciones como root en contenedores
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S docuvalle -u 1001
+# Crear usuario no-root
+RUN addgroup -g 1001 -S nodejs && adduser -S docuvalle -u 1001
 
-# Instalar solo las dependencias de sistema mínimas necesarias
+# Instalar curl para health checks
 RUN apk add --no-cache curl
 
-# Establecer directorio de trabajo
 WORKDIR /app
 
-# Cambiar propietario del directorio
+# Cambiar propietario
 RUN chown -R docuvalle:nodejs /app
 USER docuvalle
 
-# Copiar archivos compilados y dependencias desde la etapa de build
+# Copiar archivos desde builder
 COPY --from=builder --chown=docuvalle:nodejs /app/dist ./dist
 COPY --from=builder --chown=docuvalle:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=docuvalle:nodejs /app/package.json ./package.json
 
-# Variables de entorno por defecto
+# Variables de entorno
 ENV NODE_ENV=production
 ENV PORT=8080
 
-# Exponer puerto
 EXPOSE 8080
 
-# Health check - CORREGIDO para usar tu endpoint /api/health
+# Health check simple
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/api/health || exit 1
 
-# Comando para ejecutar la aplicación - CORREGIDO para usar server.js
+# Comando de inicio
 CMD ["node", "dist/server.js"]
 
-# Metadata del contenedor
 LABEL maintainer="DocuValle Team"
 LABEL version="1.0"
-LABEL description="Backend API para verificación de documentos con Google Cloud Vision"
