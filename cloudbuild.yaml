@@ -78,8 +78,4 @@ options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
 
-# Variables que Cloud Build reemplazará automáticamente
-substitutions:
-  _FIREBASE_TOKEN: 'token'  # Lo configuraremos después
-
 timeout: '1200s'
