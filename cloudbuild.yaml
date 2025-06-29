@@ -70,7 +70,14 @@ steps:
   # PASO 8: Desplegar frontend a Firebase Hosting
   - name: 'andreysenov/firebase-tools'
     entrypoint: 'firebase'
-    args: ['deploy', '--only', 'hosting', '--project', '$PROJECT_ID', '--token', '1//05XosnWZntJhpCgYIARAAGAUSNwF-L9IrUM4LZz47t2CT4qNKEISY6-qGkYZJXylGbZkorJQ4xiOGl6RWBrsrNCngoCRaZULL5bM']
+    args:
+      - '-c'
+      - |
+        # Instalar Firebase CLI
+        npm install -g firebase-tools
+        
+        # Desplegar usando el token
+        firebase deploy --only hosting --project $PROJECT_ID --token "1//05XosnWZntJhpCgYIARAAGAUSNwF-L9IrUM4LZz47t2CT4qNKEISY6-qGkYZJXylGbZkorJQ4xiOGl6RWBrsrNCngoCRaZULL5bM"
     id: 'deploy-frontend'
     waitFor: ['build-frontend']
 
