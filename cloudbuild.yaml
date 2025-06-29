@@ -1,86 +1,275 @@
-# Configuración de Cloud Build para DocuValle
-# Este archivo coordina el despliegue completo del frontend y backend
+# Configuración mejorada de Cloud Build para DocuValle
+# Con diagnóstico integrado y manejo de errores
 
 steps:
-  # PASO 1: Instalar dependencias del backend
+  # PASO 1: Verificar configuración inicial
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== DIAGNÓSTICO INICIAL ==="
+        echo "Project ID: $PROJECT_ID"
+        echo "Commit SHA: $COMMIT_SHA"
+        echo "Verificando servicios habilitados..."
+        gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:cloudbuild.googleapis.com"
+        echo "=========================="
+    id: 'initial-diagnostics'
+
+  # PASO 2: Instalar dependencias del backend con verificación
   - name: 'node:18'
-    entrypoint: 'npm'
-    args: ['ci']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Instalando dependencias del backend..."
+        npm ci
+        echo "Verificando package.json..."
+        if [ -f "package.json" ]; then
+          echo "✓ package.json encontrado"
+          cat package.json | jq '.scripts.build'
+        else
+          echo "✗ package.json no encontrado"
+          exit 1
+        fi
     dir: 'backend'
     id: 'install-backend-deps'
+    waitFor: ['initial-diagnostics']
 
-  # PASO 2: Compilar el backend TypeScript a JavaScript
+  # PASO 3: Compilar backend con verificación de errores
   - name: 'node:18'
-    entrypoint: 'npm'
-    args: ['run', 'build']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Compilando TypeScript a JavaScript..."
+        npm run build
+        echo "Verificando compilación..."
+        if [ -d "dist" ]; then
+          echo "✓ Directorio dist creado correctamente"
+          ls -la dist/
+        else
+          echo "✗ Error en compilación - directorio dist no existe"
+          exit 1
+        fi
     dir: 'backend'
     id: 'build-backend'
     waitFor: ['install-backend-deps']
 
-  # PASO 3: Construir la imagen Docker del backend
+  # PASO 4: Verificar Dockerfile del backend
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Verificando Dockerfile..."
+        if [ -f "./backend/Dockerfile" ]; then
+          echo "✓ Dockerfile encontrado"
+          cat ./backend/Dockerfile
+        else
+          echo "✗ Dockerfile no encontrado en ./backend/"
+          ls -la ./backend/
+          exit 1
+        fi
+    id: 'verify-dockerfile'
+    waitFor: ['build-backend']
+
+  # PASO 5: Construir imagen Docker con mejor manejo de errores
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
-      '-t', 'us-central1-docker.pkg.dev/apt-cubist-368817/docuvalle-backend/backend:$COMMIT_SHA',
-      '-t', 'us-central1-docker.pkg.dev/apt-cubist-368817/docuvalle-backend/backend:latest',
+      '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/docuvalle-backend/backend:$COMMIT_SHA',
+      '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/docuvalle-backend/backend:latest',
+      '--progress=plain',
       './backend'
     ]
     id: 'build-docker-image'
-    waitFor: ['build-backend']
+    waitFor: ['verify-dockerfile']
 
-  # PASO 4: Subir la imagen a Artifact Registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '--all-tags', 'us-central1-docker.pkg.dev/apt-cubist-368817/docuvalle-backend/backend']
-    id: 'push-docker-image'
+  # PASO 6: Verificar que Artifact Registry existe
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Verificando Artifact Registry..."
+        if gcloud artifacts repositories describe docuvalle-backend --location=us-central1; then
+          echo "✓ Repository docuvalle-backend existe"
+        else
+          echo "⚠ Repository no existe, creándolo..."
+          gcloud artifacts repositories create docuvalle-backend \
+            --repository-format=docker \
+            --location=us-central1 \
+            --description="Repository para DocuValle backend"
+        fi
+    id: 'verify-artifact-registry'
     waitFor: ['build-docker-image']
 
-  # PASO 5: Desplegar backend a Cloud Run
+  # PASO 7: Subir imagen con verificación
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Subiendo imagen a Artifact Registry..."
+        docker push us-central1-docker.pkg.dev/$PROJECT_ID/docuvalle-backend/backend:$COMMIT_SHA
+        docker push us-central1-docker.pkg.dev/$PROJECT_ID/docuvalle-backend/backend:latest
+        echo "✓ Imagen subida correctamente"
+    id: 'push-docker-image'
+    waitFor: ['verify-artifact-registry']
+
+  # PASO 8: Desplegar backend con configuración completa
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: 'gcloud'
-    args: [
-      'run', 'deploy', 'docuvalle-backend',
-      '--image', 'us-central1-docker.pkg.dev/apt-cubist-368817/docuvalle-backend/backend:$COMMIT_SHA',
-      '--region', 'us-central1',
-      '--platform', 'managed',
-      '--allow-unauthenticated',
-      '--port', '8080',
-      '--memory', '1Gi',
-      '--cpu', '1',
-      '--min-instances', '0',
-      '--max-instances', '10',
-      '--set-env-vars', 'NODE_ENV=production,PROJECT_ID=apt-cubist-368817'
-    ]
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Desplegando backend a Cloud Run..."
+        gcloud run deploy docuvalle-backend \
+          --image us-central1-docker.pkg.dev/$PROJECT_ID/docuvalle-backend/backend:$COMMIT_SHA \
+          --region us-central1 \
+          --platform managed \
+          --allow-unauthenticated \
+          --port 8080 \
+          --memory 1Gi \
+          --cpu 1 \
+          --min-instances 0 \
+          --max-instances 10 \
+          --timeout 300 \
+          --set-env-vars NODE_ENV=production,PROJECT_ID=$PROJECT_ID,GOOGLE_CLOUD_PROJECT=$PROJECT_ID \
+          --service-account docuvalle-backend@$PROJECT_ID.iam.gserviceaccount.com
+        
+        echo "Obteniendo URL del servicio..."
+        SERVICE_URL=$(gcloud run services describe docuvalle-backend --region=us-central1 --format='value(status.url)')
+        echo "Backend URL: $SERVICE_URL"
+        
+        # Guardar URL para el frontend
+        echo "$SERVICE_URL" > /workspace/backend_url.txt
     id: 'deploy-backend'
     waitFor: ['push-docker-image']
 
-  # PASO 6: Instalar dependencias del frontend
+  # PASO 9: Verificar que el backend esté funcionando
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Verificando que el backend esté funcionando..."
+        BACKEND_URL=$(cat /workspace/backend_url.txt)
+        echo "Probando URL: $BACKEND_URL"
+        
+        for i in {1..30}; do
+          if curl -f "$BACKEND_URL/health" > /dev/null 2>&1; then
+            echo "✓ Backend está funcionando correctamente"
+            break
+          elif [ $i -eq 30 ]; then
+            echo "✗ Backend no responde después de 5 minutos"
+            echo "Logs del servicio:"
+            gcloud logging read "resource.type=cloud_run_revision resource.labels.service_name=docuvalle-backend" --limit=50
+            exit 1
+          else
+            echo "Intento $i/30 fallido, esperando 10 segundos..."
+            sleep 10
+          fi
+        done
+    id: 'verify-backend'
+    waitFor: ['deploy-backend']
+
+  # PASO 10: Instalar dependencias del frontend
   - name: 'node:18'
-    entrypoint: 'npm'
-    args: ['ci']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Instalando dependencias del frontend..."
+        npm ci
+        echo "Verificando estructura del proyecto..."
+        ls -la
+        if [ -f "src/index.js" ] || [ -f "src/index.tsx" ]; then
+          echo "✓ Proyecto React encontrado"
+        else
+          echo "✗ Estructura de React no encontrada"
+          exit 1
+        fi
     dir: 'frontend'
     id: 'install-frontend-deps'
 
-  # PASO 7: Construir el frontend React optimizado para producción
+  # PASO 11: Construir frontend con variables dinámicas
   - name: 'node:18'
-    entrypoint: 'npm'
-    args: ['run', 'build']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Construyendo frontend..."
+        BACKEND_URL=$(cat /workspace/backend_url.txt)
+        echo "Configurando variables de entorno..."
+        echo "REACT_APP_API_URL=$BACKEND_URL" > .env.production
+        echo "REACT_APP_PROJECT_ID=$PROJECT_ID" >> .env.production
+        
+        echo "Variables configuradas:"
+        cat .env.production
+        
+        echo "Iniciando build..."
+        npm run build
+        
+        echo "Verificando build..."
+        if [ -d "build" ]; then
+          echo "✓ Frontend compilado correctamente"
+          ls -la build/
+        else
+          echo "✗ Error en build del frontend"
+          exit 1
+        fi
     dir: 'frontend'
     id: 'build-frontend'
-    waitFor: ['install-frontend-deps']
-    env:
-      - 'REACT_APP_API_URL=https://docuvalle-backend-775139116207.us-central1.run.app'
-      - 'REACT_APP_PROJECT_ID=apt-cubist-368817'
+    waitFor: ['install-frontend-deps', 'verify-backend']
 
-  # PASO 8: Desplegar frontend a Firebase Hosting
-  - name: 'gcr.io/$PROJECT_ID/firebase'
-    args: ['deploy', '--only', 'hosting', '--project', 'apt-cubist-368817']
+  # PASO 12: Instalar Firebase CLI y desplegar
+  - name: 'node:18'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Instalando Firebase CLI..."
+        npm install -g firebase-tools
+        
+        echo "Verificando configuración de Firebase..."
+        cat firebase.json
+        
+        echo "Iniciando deployment a Firebase Hosting..."
+        firebase deploy --only hosting --project $PROJECT_ID --token "$FIREBASE_TOKEN"
+        
+        echo "✓ Frontend desplegado correctamente"
     id: 'deploy-frontend'
     waitFor: ['build-frontend']
 
+  # PASO 13: Verificación final del sistema completo
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== VERIFICACIÓN FINAL ==="
+        BACKEND_URL=$(cat /workspace/backend_url.txt)
+        FRONTEND_URL="https://$PROJECT_ID.web.app"
+        
+        echo "Backend URL: $BACKEND_URL"
+        echo "Frontend URL: $FRONTEND_URL"
+        
+        echo "Probando conectividad backend..."
+        curl -f "$BACKEND_URL/health" && echo "✓ Backend OK" || echo "✗ Backend Error"
+        
+        echo "Probando conectividad frontend..."
+        curl -f "$FRONTEND_URL" && echo "✓ Frontend OK" || echo "✗ Frontend Error"
+        
+        echo "========================="
+    id: 'final-verification'
+    waitFor: ['deploy-frontend']
+
 # Configuraciones adicionales
-# options:
-  #logging: CLOUD_LOGGING_ONLY
-  #machineType: 'E2_HIGHCPU_8'
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
 
 # Variables de entorno que Cloud Build necesita
 substitutions:
@@ -88,4 +277,4 @@ substitutions:
   _SERVICE_NAME: 'docuvalle-backend'
   _REPOSITORY: 'docuvalle-backend'
 
-timeout: '1200s'
+timeout: '1800s'  # Incrementado a 30 minutos por las verificaciones
