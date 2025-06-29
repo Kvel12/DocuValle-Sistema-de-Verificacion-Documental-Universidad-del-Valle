@@ -78,9 +78,9 @@ steps:
     waitFor: ['build-frontend']
 
 # Configuraciones adicionales
-options:
-  logging: CLOUD_LOGGING_ONLY
-  machineType: 'E2_HIGHCPU_8'
+# options:
+  #logging: CLOUD_LOGGING_ONLY
+  #machineType: 'E2_HIGHCPU_8'
 
 # Variables de entorno que Cloud Build necesita
 substitutions:
