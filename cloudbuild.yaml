@@ -1,5 +1,3 @@
-# cloudbuild.yaml CORREGIDO - Versión Simple para Principiantes
-# Este archivo es mucho más simple y no tiene errores de variables
 
 steps:
   # PASO 1: Instalar dependencias del backend
@@ -74,6 +72,11 @@ steps:
     args: ['deploy', '--only', 'hosting', '--project', '$PROJECT_ID', '--token', '$_FIREBASE_TOKEN']
     id: 'deploy-frontend'
     waitFor: ['build-frontend']
+
+# Configuración adicional para resolver el error de service account
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
 
 # Variables que Cloud Build reemplazará automáticamente
 substitutions:
