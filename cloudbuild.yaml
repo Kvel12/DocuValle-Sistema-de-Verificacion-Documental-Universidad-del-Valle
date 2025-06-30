@@ -1,3 +1,4 @@
+# cloudbuild.yaml FINAL CORREGIDO - DocuValle
 
 steps:
   # PASO 1: Instalar dependencias del backend
@@ -44,7 +45,9 @@ steps:
       '--memory', '1Gi',
       '--cpu', '1',
       '--min-instances', '0',
-      '--max-instances', '10'
+      '--max-instances', '10',
+      '--timeout', '300',
+      '--cpu-boost'
     ]
     id: 'deploy-backend'
     waitFor: ['push-docker-image']
@@ -56,7 +59,7 @@ steps:
     dir: 'frontend'
     id: 'install-frontend-deps'
 
-  # PASO 7: Construir el frontend (URL fija por ahora)
+  # PASO 7: Construir el frontend con URL CORRECTA
   - name: 'node:18'
     entrypoint: 'npm'
     args: ['run', 'build']
@@ -64,24 +67,38 @@ steps:
     id: 'build-frontend'
     waitFor: ['install-frontend-deps']
     env:
-      - 'REACT_APP_API_URL=https://docuvalle-backend-775139116207.us-central1.run.app'
+      - 'REACT_APP_API_URL=https://docuvalle-backend-166554040569.us-central1.run.app'
       - 'REACT_APP_PROJECT_ID=$PROJECT_ID'
 
-  # PASO 8: Desplegar frontend a Firebase Hosting
-  - name: 'andreysenov/firebase-tools'
-    entrypoint: 'firebase'
+  # PASO 8: Desplegar frontend a Firebase Hosting - VERSIÓN CORREGIDA
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
     args:
       - '-c'
       - |
+        echo "🔧 Iniciando deployment del frontend..."
+        
         # Instalar Firebase CLI
         npm install -g firebase-tools
         
-        # Desplegar usando el token
+        # Verificar que el build del frontend existe
+        if [ ! -d "frontend/build" ]; then
+          echo "❌ Error: directorio frontend/build no encontrado"
+          ls -la frontend/
+          exit 1
+        fi
+        
+        echo "✅ Frontend build encontrado, archivos:"
+        ls -la frontend/build/
+        
+        # Desplegar a Firebase Hosting con token
         firebase deploy --only hosting --project $PROJECT_ID --token "1//05XosnWZntJhpCgYIARAAGAUSNwF-L9IrUM4LZz47t2CT4qNKEISY6-qGkYZJXylGbZkorJQ4xiOGl6RWBrsrNCngoCRaZULL5bM"
+        
+        echo "🎉 Frontend desplegado exitosamente a https://$PROJECT_ID.web.app"
     id: 'deploy-frontend'
     waitFor: ['build-frontend']
 
-# Configuración adicional para resolver el error de service account
+# Configuración adicional
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
