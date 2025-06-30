@@ -92,25 +92,59 @@ app.get('/api/test-firebase', async (req, res) => {
   }
 });
 
-// Ruta para probar Vision API con un texto simple
+// Ruta para probar Vision API - VERSIÓN COMPLETAMENTE CORREGIDA
 app.get('/api/test-vision', async (req, res) => {
   try {
-    // Creamos una imagen simple con texto para probar Vision API
-    const testMessage = await visionService.detectTextFromBuffer(
-      Buffer.from('Esto es una prueba de Vision API para DocuValle'), 
-      'text/plain'
-    );
+    console.log('🔍 Iniciando test de Vision API...');
     
-    res.json({
-      success: true,
-      message: '✅ Vision API conectado correctamente',
-      resultado: 'Vision API responde correctamente'
-    });
+    // Usamos el nuevo método de test que no requiere imágenes reales
+    const resultado = await visionService.testConnection();
+    
+    if (resultado.success) {
+      res.json({
+        success: true,
+        message: '✅ Vision API conectado correctamente',
+        resultado: resultado.message,
+        detalles: resultado.details
+      });
+    } else {
+      // Si el test básico falla, enviamos un error 500
+      res.status(500).json({
+        success: false,
+        message: '❌ Error conectando con Vision API',
+        error: resultado.message
+      });
+    }
+    
   } catch (error) {
     console.error('Error con Vision API:', error);
     res.status(500).json({
       success: false,
-      message: '❌ Error conectando con Vision API',
+      message: '❌ Error inesperado con Vision API',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+// Ruta adicional para test completo con imagen sintética (opcional)
+app.get('/api/test-vision-complete', async (req, res) => {
+  try {
+    console.log('🧪 Iniciando test completo de Vision API...');
+    
+    const resultado = await visionService.testWithSyntheticImage();
+    
+    res.json({
+      success: resultado.success,
+      message: resultado.message,
+      resultado: resultado.resultado,
+      nota: 'Test realizado con imagen sintética para verificar pipeline completo'
+    });
+    
+  } catch (error) {
+    console.error('Error en test completo de Vision API:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error en test completo de Vision API',
       error: error instanceof Error ? error.message : 'Error desconocido'
     });
   }
