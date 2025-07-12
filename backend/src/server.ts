@@ -13,33 +13,30 @@ import { DocumentService } from './services/documentService';
 
 // Inicializamos la aplicación Express - nuestro servidor web
 const app = express();
-const PORT = process.env.PORT || 8080; // Cloud Run siempre usa el puerto 8080
+const PORT = process.env.PORT || 8080;
 
 // Configuramos CORS para permitir comunicación entre Firebase Hosting y Cloud Run
-// Es como abrir la puerta entre el frontend y backend
 app.use(cors({
   origin: [
-    'https://apt-cubist-368817.web.app',    // URL de Firebase Hosting en producción
-    'https://apt-cubist-368817.firebaseapp.com', // URL alternativa de Firebase
-    'http://localhost:3000',                 // Para desarrollo local del frontend
-    'http://localhost:3001'                  // Puerto alternativo para desarrollo
+    'https://apt-cubist-368817.web.app',
+    'https://apt-cubist-368817.firebaseapp.com',
+    'http://localhost:3000',
+    'http://localhost:3001'
   ],
   credentials: true
 }));
 
 // Middlewares para procesar peticiones
-app.use(express.json({ limit: '50mb' })); // Permitimos archivos grandes (hasta 50MB)
+app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Configuramos Multer para manejar subida de archivos
-// Es como tener un asistente especializado en recibir documentos
 const upload = multer({
-  storage: multer.memoryStorage(), // Guardamos en memoria temporalmente
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 50 * 1024 * 1024, // Máximo 50MB por archivo
   },
   fileFilter: (req, file, cb) => {
-    // Solo aceptamos ciertos tipos de archivos para seguridad
     const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
@@ -53,8 +50,8 @@ const upload = multer({
 let visionService: VisionService;
 let documentService: DocumentService;
 
-// Ruta de prueba para verificar que el servidor funciona
-// Es como un "ping" para asegurar que todo está vivo
+// ENDPOINTS DE TESTING Y HEALTH CHECK
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -65,10 +62,15 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Ruta para probar la conexión con Firebase
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString() 
+  });
+});
+
 app.get('/api/test-firebase', async (req, res) => {
   try {
-    // Intentamos escribir un documento de prueba en Firestore
     const testDoc = {
       mensaje: 'Conexión exitosa con Firebase',
       timestamp: new Date(),
@@ -92,12 +94,10 @@ app.get('/api/test-firebase', async (req, res) => {
   }
 });
 
-// Ruta para probar Vision API - VERSIÓN COMPLETAMENTE CORREGIDA
 app.get('/api/test-vision', async (req, res) => {
   try {
     console.log('🔍 Iniciando test de Vision API...');
     
-    // Usamos el nuevo método de test que no requiere imágenes reales
     const resultado = await visionService.testConnection();
     
     if (resultado.success) {
@@ -108,7 +108,6 @@ app.get('/api/test-vision', async (req, res) => {
         detalles: resultado.details
       });
     } else {
-      // Si el test básico falla, enviamos un error 500
       res.status(500).json({
         success: false,
         message: '❌ Error conectando con Vision API',
@@ -126,7 +125,6 @@ app.get('/api/test-vision', async (req, res) => {
   }
 });
 
-// Ruta adicional para test completo con imagen sintética (opcional)
 app.get('/api/test-vision-complete', async (req, res) => {
   try {
     console.log('🧪 Iniciando test completo de Vision API...');
@@ -150,151 +148,6 @@ app.get('/api/test-vision-complete', async (req, res) => {
   }
 });
 
-// Ruta principal para procesar documentos (la funcionalidad core de DocuValle)
-app.post('/api/procesar-documento', upload.single('archivo'), async (req, res) => {
-  try {
-    // Verificamos que se haya enviado un archivo
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'No se ha enviado ningún archivo para procesar'
-      });
-    }
-
-    const archivo = req.file;
-    const userId = req.body.userId || 'usuario-anonimo'; // En producción esto vendrá del token de autenticación
-    
-    console.log(`📄 Procesando documento: ${archivo.originalname} (${archivo.size} bytes)`);
-
-    // Generamos un ID único para este procesamiento
-    const procesamientoId = uuidv4();
-    
-    // Paso 1: Guardamos el archivo original en Cloud Storage
-    const archivoUrl = await documentService.uploadFile(archivo, procesamientoId);
-    
-    // Paso 2: Extraemos texto usando Vision API
-    const textoExtraido = await visionService.detectTextFromBuffer(archivo.buffer, archivo.mimetype);
-    
-    // Paso 3: Guardamos los resultados en Firestore
-    const resultado = await documentService.saveProcessingResult({
-      id: procesamientoId,
-      userId,
-      nombreArchivo: archivo.originalname,
-      tipoArchivo: archivo.mimetype,
-      tamanoArchivo: archivo.size,
-      archivoUrl,
-      textoExtraido,
-      fechaProcesamiento: new Date(),
-      estado: 'completado'
-    });
-
-    res.json({
-      success: true,
-      message: '🎉 Documento procesado exitosamente',
-      resultado: {
-        id: procesamientoId,
-        textoExtraido: textoExtraido.substring(0, 500) + (textoExtraido.length > 500 ? '...' : ''), // Limitamos la respuesta
-        numeroCaracteres: textoExtraido.length,
-        archivoUrl
-      }
-    });
-
-  } catch (error) {
-    console.error('Error procesando documento:', error);
-    res.status(500).json({
-      success: false,
-      message: '❌ Error procesando el documento',
-      error: error instanceof Error ? error.message : 'Error desconocido'
-    });
-  }
-});
-
-// Ruta para obtener el historial de documentos procesados
-app.get('/api/documentos/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const documentos = await documentService.getUserDocuments(userId);
-    
-    res.json({
-      success: true,
-      documentos,
-      total: documentos.length
-    });
-  } catch (error) {
-    console.error('Error obteniendo documentos:', error);
-    res.status(500).json({
-      success: false,
-      message: '❌ Error obteniendo documentos',
-      error: error instanceof Error ? error.message : 'Error desconocido'
-    });
-  }
-});
-
-// Función para inicializar todos los servicios antes de arrancar el servidor
-async function initializeServices() {
-  try {
-    console.log('🔄 Inicializando servicios de DocuValle...');
-    
-    // Inicializamos Firebase Admin
-    initializeFirebaseAdmin();
-    console.log('✅ Firebase Admin inicializado');
-    
-    // Inicializamos Vision API
-    visionService = new VisionService();
-    console.log('✅ Vision API inicializado');
-    
-    // Inicializamos el servicio de documentos
-    documentService = new DocumentService();
-    console.log('✅ Servicio de documentos inicializado');
-    
-    console.log('🎉 Todos los servicios inicializados correctamente');
-  } catch (error) {
-    console.error('❌ Error inicializando servicios:', error);
-    process.exit(1); // Si algo falla, detenemos el servidor
-  }
-}
-
-// Manejador de errores global
-app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Error no manejado:', error);
-  res.status(500).json({
-    success: false,
-    message: 'Error interno del servidor',
-    error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno'
-  });
-});
-
-// Endpoint de health simple para Cloud Run 
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString() 
-  });
-});
-
-// Función principal para arrancar el servidor
-async function startServer() {
-  await initializeServices();
-  
-  app.listen(PORT, () => {
-    console.log(`🚀 DocuValle Backend ejecutándose en puerto ${PORT}`);
-    console.log(`🌐 Health check: http://localhost:${PORT}/api/health`);
-    console.log(`📄 Documentación API disponible en: http://localhost:${PORT}/api/`);
-  });
-}
-
-// Arrancamos el servidor solo si este archivo se ejecuta directamente
-if (require.main === module) {
-  startServer().catch(error => {
-    console.error('❌ Error arrancando el servidor:', error);
-    process.exit(1);
-  });
-}
-
-// NUEVOS ENDPOINTS PARA HU004: Subir y Procesar Documento
-// Agrega estos endpoints a tu server.ts existente
-
-// Endpoint para debugging de Cloud Storage
 app.get('/api/test-storage', async (req, res) => {
   try {
     console.log('🧪 Probando conexión con Cloud Storage...');
@@ -325,12 +178,12 @@ app.get('/api/test-storage', async (req, res) => {
   }
 });
 
-// ENDPOINT 1: Subir archivo (sin procesar)
+// ENDPOINTS NUEVOS
+
 app.post('/api/documents/upload', upload.single('archivo'), async (req, res) => {
   try {
     console.log('📤 Iniciando upload de documento...');
 
-    // Verificamos que se haya enviado un archivo
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -342,8 +195,7 @@ app.post('/api/documents/upload', upload.single('archivo'), async (req, res) => 
     const archivo = req.file;
     console.log(`📄 Archivo recibido: ${archivo.originalname} (${archivo.size} bytes, ${archivo.mimetype})`);
 
-    // Validaciones adicionales
-    if (archivo.size > 10 * 1024 * 1024) { // 10MB para HU004
+    if (archivo.size > 10 * 1024 * 1024) {
       return res.status(400).json({
         success: false,
         message: 'El archivo es demasiado grande. Máximo permitido: 10MB',
@@ -351,17 +203,12 @@ app.post('/api/documents/upload', upload.single('archivo'), async (req, res) => 
       });
     }
 
-    // Generamos un ID único para este documento
     const documentoId = uuidv4();
-    
     console.log(`📋 ID generado para el documento: ${documentoId}`);
 
-    // Solo subimos el archivo a Cloud Storage (no procesamos aún)
     const archivoUrl = await documentService.uploadFile(archivo, documentoId);
-    
     console.log(`✅ Archivo subido exitosamente: ${archivoUrl}`);
 
-    // Respondemos con la información del archivo subido
     res.json({
       success: true,
       message: '📤 Archivo subido exitosamente',
@@ -406,14 +253,12 @@ app.post('/api/documents/upload', upload.single('archivo'), async (req, res) => 
   }
 });
 
-// ENDPOINT 2: Analizar documento ya subido
 app.post('/api/documents/analyze', async (req, res) => {
   try {
     console.log('🔍 Iniciando análisis de documento...');
 
     const { documentoId, archivoUrl, nombreArchivo, tipoArchivo, tamanoArchivo } = req.body;
 
-    // Validaciones de entrada
     if (!documentoId || !archivoUrl) {
       return res.status(400).json({
         success: false,
@@ -424,12 +269,10 @@ app.post('/api/documents/analyze', async (req, res) => {
 
     console.log(`📊 Analizando documento: ${documentoId}`);
 
-    // Descargamos el archivo de Cloud Storage para procesarlo con Vision API
     const bucket = storage.bucket('apt-cubist-368817.firebasestorage.app');
-    const fileName = archivoUrl.split('/').pop(); // Extraemos el nombre del archivo de la URL
+    const fileName = archivoUrl.split('/').pop();
     const file = bucket.file(fileName);
 
-    // Verificamos que el archivo existe
     const [exists] = await file.exists();
     if (!exists) {
       return res.status(404).json({
@@ -439,21 +282,17 @@ app.post('/api/documents/analyze', async (req, res) => {
       });
     }
 
-    // Descargamos el archivo a memoria
     console.log('📥 Descargando archivo de Cloud Storage...');
     const [fileBuffer] = await file.download();
 
-    // Procesamos con Vision API
     console.log('🤖 Procesando con Vision API...');
     const textoExtraido = await visionService.detectTextFromBuffer(fileBuffer, tipoArchivo);
 
-    // Calculamos score de autenticidad (HU005 básico)
     console.log('📊 Calculando score de autenticidad...');
     const analisisAutenticidad = await calcularScoreAutenticidad(textoExtraido, tipoArchivo);
 
-    // Guardamos los resultados en Firestore
     console.log('💾 Guardando resultados...');
-    const userId = req.body.userId || 'usuario-temporal'; // En producción vendrá del token JWT
+    const userId = req.body.userId || 'usuario-temporal';
 
     await documentService.saveProcessingResult({
       id: documentoId,
@@ -472,7 +311,6 @@ app.post('/api/documents/analyze', async (req, res) => {
 
     console.log(`✅ Documento analizado exitosamente: ${documentoId}`);
 
-    // Respondemos con los resultados del análisis
     res.json({
       success: true,
       message: '🎉 Documento analizado exitosamente',
@@ -519,7 +357,6 @@ app.post('/api/documents/analyze', async (req, res) => {
   }
 });
 
-// ENDPOINT: Asignar documento a usuario
 app.post('/api/documents/:documentoId/assign', async (req, res) => {
   try {
     console.log('👤 Asignando documento a usuario...');
@@ -535,7 +372,6 @@ app.post('/api/documents/:documentoId/assign', async (req, res) => {
       });
     }
 
-    // Verificamos que el documento existe
     const docRef = db.collection('documentos').doc(documentoId);
     const doc = await docRef.get();
 
@@ -547,7 +383,6 @@ app.post('/api/documents/:documentoId/assign', async (req, res) => {
       });
     }
 
-    // Actualizamos el documento con la información del usuario
     await docRef.update({
       usuarioAsignado: nombreUsuario,
       tipoDocumento: tipoDocumento || 'no_especificado',
@@ -578,7 +413,6 @@ app.post('/api/documents/:documentoId/assign', async (req, res) => {
   }
 });
 
-// ENDPOINT: Buscar documentos por usuario
 app.get('/api/documents/search/:nombreUsuario', async (req, res) => {
   try {
     console.log('🔍 Buscando documentos por usuario...');
@@ -593,7 +427,6 @@ app.get('/api/documents/search/:nombreUsuario', async (req, res) => {
       });
     }
 
-    // Buscamos documentos asignados a este usuario
     const snapshot = await db
       .collection('documentos')
       .where('usuarioAsignado', '==', nombreUsuario)
@@ -636,14 +469,12 @@ app.get('/api/documents/search/:nombreUsuario', async (req, res) => {
   }
 });
 
-// ENDPOINT: Ver detalles completos del documento
 app.get('/api/documents/:documentoId/details', async (req, res) => {
   try {
     console.log('📋 Obteniendo detalles del documento...');
 
     const { documentoId } = req.params;
 
-    // Obtenemos el documento de Firestore
     const doc = await db.collection('documentos').doc(documentoId).get();
 
     if (!doc.exists) {
@@ -655,8 +486,6 @@ app.get('/api/documents/:documentoId/details', async (req, res) => {
     }
 
     const data = doc.data();
-
-    // Obtenemos el texto completo si es necesario
     const textoCompleto = await documentService.getTextoCompleto(documentoId);
 
     const detalles = {
@@ -687,7 +516,7 @@ app.get('/api/documents/:documentoId/details', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ [HU010] Error obteniendo detalles:', error);
+    console.error('❌ Error obteniendo detalles:', error);
     res.status(500).json({
       success: false,
       message: '❌ Error obteniendo detalles del documento',
@@ -696,7 +525,80 @@ app.get('/api/documents/:documentoId/details', async (req, res) => {
   }
 });
 
-// FUNCIÓN AUXILIAR: Algoritmo básico de score de autenticidad (HU005)
+// ENDPOINT LEGACY PARA COMPATIBILIDAD
+app.post('/api/procesar-documento', upload.single('archivo'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se ha enviado ningún archivo para procesar'
+      });
+    }
+
+    const archivo = req.file;
+    const userId = req.body.userId || 'usuario-anonimo';
+    
+    console.log(`📄 Procesando documento: ${archivo.originalname} (${archivo.size} bytes)`);
+
+    const procesamientoId = uuidv4();
+    const archivoUrl = await documentService.uploadFile(archivo, procesamientoId);
+    const textoExtraido = await visionService.detectTextFromBuffer(archivo.buffer, archivo.mimetype);
+    
+    const resultado = await documentService.saveProcessingResult({
+      id: procesamientoId,
+      userId,
+      nombreArchivo: archivo.originalname,
+      tipoArchivo: archivo.mimetype,
+      tamanoArchivo: archivo.size,
+      archivoUrl,
+      textoExtraido,
+      fechaProcesamiento: new Date(),
+      estado: 'completado'
+    });
+
+    res.json({
+      success: true,
+      message: '🎉 Documento procesado exitosamente',
+      resultado: {
+        id: procesamientoId,
+        textoExtraido: textoExtraido.substring(0, 500) + (textoExtraido.length > 500 ? '...' : ''),
+        numeroCaracteres: textoExtraido.length,
+        archivoUrl
+      }
+    });
+
+  } catch (error) {
+    console.error('Error procesando documento:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error procesando el documento',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+app.get('/api/documentos/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const documentos = await documentService.getUserDocuments(userId);
+    
+    res.json({
+      success: true,
+      documentos,
+      total: documentos.length
+    });
+  } catch (error) {
+    console.error('Error obteniendo documentos:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error obteniendo documentos',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+// FUNCIONES AUXILIARES
+
 async function calcularScoreAutenticidad(textoExtraido: string, tipoArchivo: string) {
   console.log('📊 Calculando score de autenticidad...');
   
@@ -710,47 +612,42 @@ async function calcularScoreAutenticidad(textoExtraido: string, tipoArchivo: str
   // Factor 1: Calidad del texto extraído (30 puntos máximo)
   const palabras = textoExtraido.split(/\s+/).filter(p => p.length > 0);
   if (palabras.length > 50 && textoExtraido.length > 200) {
-    score += 30; // Texto completo y claro
+    score += 30;
   } else if (palabras.length > 20) {
-    score += 20; // Texto parcial
+    score += 20;
   } else {
-    score += 10; // Texto básico
+    score += 10;
   }
 
   // Factor 2: Detección de elementos de seguridad (40 puntos máximo)
   const textoLower = textoExtraido.toLowerCase();
   
-  // Detección básica de sellos (15 puntos)
   if (textoLower.includes('sello') || textoLower.includes('oficial') || textoLower.includes('registro')) {
     elementos.sellos = true;
     score += 15;
   }
 
-  // Detección básica de firmas (15 puntos)
   if (textoLower.includes('firma') || textoLower.includes('director') || textoLower.includes('rector')) {
     elementos.firmas = true;
     score += 15;
   }
 
-  // Detección básica de logos/instituciones (10 puntos)
   if (textoLower.includes('universidad') || textoLower.includes('colegio') || textoLower.includes('instituto')) {
     elementos.logos = true;
     score += 10;
   }
 
   // Factor 3: Consistencia de formato (30 puntos máximo)
-  // Verificamos estructura típica de documentos académicos
   if (textoLower.includes('certificado') || textoLower.includes('diploma') || textoLower.includes('título')) {
-    score += 15; // Contiene palabras clave de documentos académicos
+    score += 15;
   }
-  if (textoExtraido.match(/\d{4}/)) { // Contiene años
-    score += 10; // Tiene fechas
+  if (textoExtraido.match(/\d{4}/)) {
+    score += 10;
   }
-  if (textoExtraido.match(/\d{1,2}\/\d{1,2}\/\d{4}/)) { // Formato de fecha
-    score += 5; // Formato de fecha válido
+  if (textoExtraido.match(/\d{1,2}\/\d{1,2}\/\d{4}/)) {
+    score += 5;
   }
 
-  // Determinamos la recomendación basada en el score
   let recomendacion: 'accept' | 'review' | 'reject';
   if (score >= 80) {
     recomendacion = 'accept';
@@ -769,7 +666,6 @@ async function calcularScoreAutenticidad(textoExtraido: string, tipoArchivo: str
   };
 }
 
-// FUNCIÓN AUXILIAR: Convertir recomendación a texto legible
 function getRecomendacionTexto(recomendacion: string): string {
   switch (recomendacion) {
     case 'accept':
@@ -781,6 +677,57 @@ function getRecomendacionTexto(recomendacion: string): string {
     default:
       return '❓ SIN DETERMINAR';
   }
+}
+
+// INICIALIZACIÓN Y CONFIGURACIÓN
+
+async function initializeServices() {
+  try {
+    console.log('🔄 Inicializando servicios de DocuValle...');
+    
+    initializeFirebaseAdmin();
+    console.log('✅ Firebase Admin inicializado');
+    
+    visionService = new VisionService();
+    console.log('✅ Vision API inicializado');
+    
+    documentService = new DocumentService();
+    console.log('✅ Servicio de documentos inicializado');
+    
+    console.log('🎉 Todos los servicios inicializados correctamente');
+  } catch (error) {
+    console.error('❌ Error inicializando servicios:', error);
+    process.exit(1);
+  }
+}
+
+// Manejador de errores global
+app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Error no manejado:', error);
+  res.status(500).json({
+    success: false,
+    message: 'Error interno del servidor',
+    error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno'
+  });
+});
+
+// Función principal para arrancar el servidor
+async function startServer() {
+  await initializeServices();
+  
+  app.listen(PORT, () => {
+    console.log(`🚀 DocuValle Backend ejecutándose en puerto ${PORT}`);
+    console.log(`🌐 Health check: http://localhost:${PORT}/api/health`);
+    console.log(`📄 Documentación API disponible en: http://localhost:${PORT}/api/`);
+  });
+}
+
+// Arrancamos el servidor solo si este archivo se ejecuta directamente
+if (require.main === module) {
+  startServer().catch(error => {
+    console.error('❌ Error arrancando el servidor:', error);
+    process.exit(1);
+  });
 }
 
 export default app;
