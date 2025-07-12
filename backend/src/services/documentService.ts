@@ -1,5 +1,4 @@
 // Servicio especializado en manejo de documentos y almacenamiento
-// Este servicio coordina entre Cloud Storage (archivos) y Firestore (metadatos)
 
 import { db, storage } from '../config/firebase';
 import { v4 as uuidv4 } from 'uuid';
@@ -15,6 +14,14 @@ export interface DocumentoProcessado {
   textoExtraido: string;
   fechaProcesamiento: Date;
   estado: 'procesando' | 'completado' | 'error';
+  // Agregamos campos para el análisis de autenticidad (HU005)
+  scoreAutenticidad?: number;
+  recomendacion?: 'accept' | 'review' | 'reject';
+  elementosSeguridad?: {
+    sellos: boolean;
+    firmas: boolean;
+    logos: boolean;
+  };
   metadatos?: {
     numeroCaracteres: number;
     numeroPalabras: number;
@@ -25,17 +32,22 @@ export interface DocumentoProcessado {
 
 export class DocumentService {
   private bucket: any;
+  private bucketName: string = 'apt-cubist-368817.firebasestorage.app';
 
   constructor() {
-    // Obtenemos referencia al bucket de Cloud Storage
-    // Es como tener acceso a un almacén donde guardaremos todos los archivos
-    this.bucket = storage.bucket();
-    console.log('📁 Document Service inicializado correctamente');
+    try {
+      // Obtenemos referencia al bucket específico de Cloud Storage
+      this.bucket = storage.bucket(this.bucketName);
+      console.log(`📁 Document Service inicializado con bucket: ${this.bucketName}`);
+    } catch (error) {
+      console.error('❌ Error inicializando DocumentService:', error);
+      throw new Error('Error inicializando el servicio de documentos');
+    }
   }
 
   /**
    * Sube un archivo a Cloud Storage
-   * Es como guardar un documento en un archivero digital súper seguro y accesible
+   * VERSIÓN MEJORADA para HU004 con mejor manejo de errores
    * 
    * @param file - Archivo recibido del frontend (viene de multer)
    * @param procesamientoId - ID único para organizar los archivos
@@ -43,13 +55,30 @@ export class DocumentService {
    */
   async uploadFile(file: Express.Multer.File, procesamientoId: string): Promise<string> {
     try {
+      console.log(`📤 [DocumentService] Iniciando upload de: ${file.originalname}`);
+      
+      // Validaciones de entrada
+      if (!file || !file.buffer) {
+        throw new Error('Archivo no válido o vacío');
+      }
+
+      if (!procesamientoId) {
+        throw new Error('ID de procesamiento requerido');
+      }
+
       // Creamos un nombre único y organizado para el archivo
-      // Es como crear un sistema de carpetas bien organizadas
       const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
       const extension = this.obtenerExtension(file.originalname);
-      const nombreArchivoStorage = `documentos/${timestamp}/${procesamientoId}_${file.originalname}`;
+      const nombreSanitizado = this.sanitizarNombreArchivo(file.originalname);
+      const nombreArchivoStorage = `documentos/${timestamp}/${procesamientoId}_${nombreSanitizado}`;
 
-      console.log(`📤 Subiendo archivo: ${nombreArchivoStorage}`);
+      console.log(`📂 Nombre en storage: ${nombreArchivoStorage}`);
+
+      // Verificamos que el bucket existe
+      const [bucketExists] = await this.bucket.exists();
+      if (!bucketExists) {
+        throw new Error(`Bucket ${this.bucketName} no existe. Verifica la configuración de Firebase.`);
+      }
 
       // Creamos referencia al archivo en Cloud Storage
       const archivoStorage = this.bucket.file(nombreArchivoStorage);
@@ -58,36 +87,51 @@ export class DocumentService {
       const stream = archivoStorage.createWriteStream({
         metadata: {
           contentType: file.mimetype,
+          cacheControl: 'public, max-age=31536000', // Cache por 1 año
           metadata: {
             // Metadatos personalizados para DocuValle
             originalName: file.originalname,
             uploadDate: new Date().toISOString(),
             procesamientoId: procesamientoId,
-            uploadedBy: 'docuvalle-backend'
+            uploadedBy: 'docuvalle-backend',
+            fileSize: file.size.toString()
           }
         },
-        // Hacemos el archivo públicamente legible (necesario para que Vision API pueda accederlo)
+        // Hacemos el archivo públicamente legible
         public: true,
         // Validamos la integridad del archivo
         validation: 'md5'
       });
 
       // Subimos el archivo como una promesa
-      // Es como enviar un paquete por correo y esperar confirmación de entrega
       return new Promise((resolve, reject) => {
+        // Timeout de 60 segundos para uploads grandes
+        const timeout = setTimeout(() => {
+          reject(new Error('Timeout subiendo archivo (60s)'));
+        }, 60000);
+
         stream.on('error', (error: Error) => {
-          console.error(`❌ Error subiendo archivo: ${error.message}`);
+          clearTimeout(timeout);
+          console.error(`❌ Error en stream de upload: ${error.message}`);
           reject(new Error(`Error subiendo archivo: ${error.message}`));
         });
 
         stream.on('finish', async () => {
+          clearTimeout(timeout);
           try {
-            // Una vez subido, obtenemos la URL pública
-            const urlPublica = `https://storage.googleapis.com/${this.bucket.name}/${nombreArchivoStorage}`;
+            // Verificamos que el archivo se subió correctamente
+            const [exists] = await archivoStorage.exists();
+            if (!exists) {
+              throw new Error('El archivo no se guardó correctamente en Cloud Storage');
+            }
+
+            // Obtenemos la URL pública
+            const urlPublica = `https://storage.googleapis.com/${this.bucketName}/${nombreArchivoStorage}`;
             
             console.log(`✅ Archivo subido exitosamente: ${urlPublica}`);
             resolve(urlPublica);
           } catch (error) {
+            console.error(`❌ Error verificando archivo subido: ${error}`);
             reject(error);
           }
         });
@@ -98,26 +142,39 @@ export class DocumentService {
 
     } catch (error) {
       console.error('❌ Error en uploadFile:', error);
-      throw new Error(`Error subiendo archivo: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      
+      // Proporcionamos errores más específicos
+      if (error instanceof Error) {
+        if (error.message.includes('bucket')) {
+          throw new Error('Error de configuración de Cloud Storage. Verifica que el bucket existe y tienes permisos.');
+        } else if (error.message.includes('permission')) {
+          throw new Error('Error de permisos en Cloud Storage. Verifica la configuración de IAM.');
+        } else {
+          throw new Error(`Error subiendo archivo: ${error.message}`);
+        }
+      }
+      
+      throw new Error('Error desconocido subiendo archivo');
     }
   }
 
   /**
    * Guarda los resultados del procesamiento en Firestore
-   * Es como crear un expediente completo del documento en nuestra base de datos
-   * 
-   * @param documento - Datos completos del procesamiento
-   * @returns Promise<string> - ID del documento guardado en Firestore
+   * VERSIÓN MEJORADA con campos para análisis de autenticidad
    */
   async saveProcessingResult(documento: DocumentoProcessado): Promise<string> {
     try {
-      console.log(`💾 Guardando resultado del procesamiento: ${documento.id}`);
+      console.log(`💾 [DocumentService] Guardando resultado: ${documento.id}`);
+
+      // Validaciones de entrada
+      if (!documento.id || !documento.userId) {
+        throw new Error('ID de documento y userId son obligatorios');
+      }
 
       // Calculamos metadatos adicionales del texto extraído
       const metadatos = this.calcularMetadatos(documento.textoExtraido);
 
       // Preparamos el documento para Firestore
-      // Separamos los datos grandes (texto) de los metadatos para optimizar las consultas
       const documentoFirestore = {
         id: documento.id,
         userId: documento.userId,
@@ -127,6 +184,16 @@ export class DocumentService {
         archivoUrl: documento.archivoUrl,
         fechaProcesamiento: documento.fechaProcesamiento,
         estado: documento.estado,
+        
+        // Campos para análisis de autenticidad (HU005)
+        scoreAutenticidad: documento.scoreAutenticidad || 0,
+        recomendacion: documento.recomendacion || 'review',
+        elementosSeguridad: documento.elementosSeguridad || {
+          sellos: false,
+          firmas: false,
+          logos: false
+        },
+        
         metadatos: {
           ...metadatos,
           ...documento.metadatos
@@ -153,20 +220,31 @@ export class DocumentService {
 
     } catch (error) {
       console.error('❌ Error guardando en Firestore:', error);
-      throw new Error(`Error guardando resultado: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      
+      if (error instanceof Error) {
+        if (error.message.includes('permission')) {
+          throw new Error('Error de permisos en Firestore. Verifica la configuración de IAM.');
+        } else if (error.message.includes('quota')) {
+          throw new Error('Se ha excedido la cuota de Firestore.');
+        } else {
+          throw new Error(`Error guardando resultado: ${error.message}`);
+        }
+      }
+      
+      throw new Error('Error desconocido guardando en Firestore');
     }
   }
 
   /**
    * Obtiene todos los documentos de un usuario específico
-   * Es como buscar en el archivero todos los documentos de una persona
-   * 
-   * @param userId - ID del usuario
-   * @returns Promise<DocumentoProcessado[]> - Lista de documentos del usuario
    */
   async getUserDocuments(userId: string): Promise<DocumentoProcessado[]> {
     try {
-      console.log(`🔍 Buscando documentos del usuario: ${userId}`);
+      console.log(`🔍 [DocumentService] Buscando documentos del usuario: ${userId}`);
+
+      if (!userId) {
+        throw new Error('userId es obligatorio');
+      }
 
       // Consultamos Firestore ordenando por fecha más reciente primero
       const snapshot = await db
@@ -179,7 +257,7 @@ export class DocumentService {
       const documentos: DocumentoProcessado[] = [];
 
       // Convertimos cada documento de Firestore a nuestro formato
-      snapshot.forEach(doc => {
+      snapshot.forEach((doc: any) => {
         const data = doc.data();
         documentos.push({
           id: data.id,
@@ -191,6 +269,9 @@ export class DocumentService {
           textoExtraido: data.textoPreview || '', // Solo la vista previa por defecto
           fechaProcesamiento: data.fechaProcesamiento.toDate(),
           estado: data.estado,
+          scoreAutenticidad: data.scoreAutenticidad,
+          recomendacion: data.recomendacion,
+          elementosSeguridad: data.elementosSeguridad,
           metadatos: data.metadatos
         });
       });
@@ -205,11 +286,48 @@ export class DocumentService {
   }
 
   /**
+   * Método para probar la conectividad con Cloud Storage
+   * Útil para debugging
+   */
+  async testStorageConnection(): Promise<{ success: boolean; message: string; details?: any }> {
+    try {
+      console.log('🧪 [DocumentService] Probando conexión con Cloud Storage...');
+
+      // Verificamos que el bucket existe
+      const [bucketExists] = await this.bucket.exists();
+      
+      if (!bucketExists) {
+        return {
+          success: false,
+          message: `Bucket ${this.bucketName} no existe`
+        };
+      }
+
+      // Obtenemos metadatos del bucket
+      const [metadata] = await this.bucket.getMetadata();
+      
+      return {
+        success: true,
+        message: 'Cloud Storage conectado correctamente',
+        details: {
+          bucketName: this.bucketName,
+          location: metadata.location,
+          storageClass: metadata.storageClass,
+          created: metadata.timeCreated
+        }
+      };
+      
+    } catch (error) {
+      console.error('❌ Error probando Cloud Storage:', error);
+      return {
+        success: false,
+        message: `Error conectando con Cloud Storage: ${error instanceof Error ? error.message : 'Error desconocido'}`
+      };
+    }
+  }
+
+  /**
    * Obtiene el texto completo de un documento específico
-   * Útil cuando el usuario quiere ver todo el texto extraído
-   * 
-   * @param documentoId - ID del documento
-   * @returns Promise<string> - Texto completo extraído
    */
   async getTextoCompleto(documentoId: string): Promise<string> {
     try {
@@ -244,16 +362,11 @@ export class DocumentService {
 
   /**
    * Calcula metadatos útiles del texto extraído
-   * Es como hacer un análisis estadístico del documento procesado
-   * 
-   * @param texto - Texto del cual calcular metadatos
-   * @returns objeto con métricas del texto
    */
   private calcularMetadatos(texto: string) {
     const palabras = texto.split(/\s+/).filter(palabra => palabra.length > 0);
     const lineas = texto.split('\n').filter(linea => linea.trim().length > 0);
     
-    // Calculamos métricas útiles para el usuario
     const metadatos = {
       numeroCaracteres: texto.length,
       numeroPalabras: palabras.length,
@@ -288,11 +401,18 @@ export class DocumentService {
   }
 
   /**
+   * Sanitiza el nombre del archivo para Cloud Storage
+   */
+  private sanitizarNombreArchivo(nombreArchivo: string): string {
+    // Reemplazamos caracteres especiales por guiones bajos
+    return nombreArchivo
+      .replace(/[^a-zA-Z0-9.-]/g, '_')
+      .replace(/_{2,}/g, '_'); // Reemplazamos múltiples guiones bajos por uno solo
+  }
+
+  /**
    * Elimina un documento y su archivo asociado
    * Útil para limpiar documentos que ya no se necesitan
-   * 
-   * @param documentoId - ID del documento a eliminar
-   * @param userId - ID del usuario (para verificar permisos)
    */
   async eliminarDocumento(documentoId: string, userId: string): Promise<void> {
     try {
@@ -311,17 +431,29 @@ export class DocumentService {
       // Eliminamos el archivo de Cloud Storage
       const archivoUrl = data?.archivoUrl;
       if (archivoUrl) {
-        // Extraemos el nombre del archivo de la URL
-        const nombreArchivo = archivoUrl.split('/').pop();
-        if (nombreArchivo) {
-          const archivo = this.bucket.file(`documentos/${nombreArchivo}`);
-          await archivo.delete();
+        try {
+          // Extraemos el nombre del archivo de la URL
+          const nombreArchivo = archivoUrl.split(`${this.bucketName}/`)[1];
+          if (nombreArchivo) {
+            const archivo = this.bucket.file(nombreArchivo);
+            await archivo.delete();
+            console.log(`🗑️ Archivo eliminado de Storage: ${nombreArchivo}`);
+          }
+        } catch (storageError) {
+          console.warn(`⚠️ No se pudo eliminar archivo de Storage: ${storageError}`);
+          // Continuamos con la eliminación en Firestore aunque falle el Storage
         }
       }
 
       // Eliminamos los registros de Firestore
       await db.collection('documentos').doc(documentoId).delete();
-      await db.collection('textos-completos').doc(documentoId).delete();
+      
+      // Intentamos eliminar texto completo si existe
+      try {
+        await db.collection('textos-completos').doc(documentoId).delete();
+      } catch (textError) {
+        console.warn(`⚠️ No se encontró texto completo para eliminar: ${textError}`);
+      }
 
       console.log(`🗑️ Documento eliminado exitosamente: ${documentoId}`);
 
