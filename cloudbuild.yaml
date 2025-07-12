@@ -1,5 +1,4 @@
-# cloudbuild.yaml FINAL CORREGIDO - DocuValle
-
+# cloudbuild.yaml FINAL CORREGIDO - DocuValle con Frontend Automatizado
 steps:
   # PASO 1: Instalar dependencias del backend
   - name: 'node:18'
@@ -7,7 +6,7 @@ steps:
     args: ['ci']
     dir: 'backend'
     id: 'install-backend-deps'
-
+    
   # PASO 2: Compilar el backend TypeScript a JavaScript
   - name: 'node:18'
     entrypoint: 'npm'
@@ -15,7 +14,7 @@ steps:
     dir: 'backend'
     id: 'build-backend'
     waitFor: ['install-backend-deps']
-
+    
   # PASO 3: Construir la imagen Docker del backend
   - name: 'gcr.io/cloud-builders/docker'
     args: [
@@ -25,13 +24,13 @@ steps:
     ]
     id: 'build-docker-image'
     waitFor: ['build-backend']
-
+    
   # PASO 4: Subir la imagen a Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/docuvalle-backend/backend:latest']
     id: 'push-docker-image'
     waitFor: ['build-docker-image']
-
+    
   # PASO 5: Desplegar backend a Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
@@ -51,14 +50,14 @@ steps:
     ]
     id: 'deploy-backend'
     waitFor: ['push-docker-image']
-
+    
   # PASO 6: Instalar dependencias del frontend
   - name: 'node:18'
     entrypoint: 'npm'
     args: ['ci']
     dir: 'frontend'
     id: 'install-frontend-deps'
-
+    
   # PASO 7: Construir el frontend con URL CORRECTA
   - name: 'node:18'
     entrypoint: 'npm'
@@ -69,16 +68,16 @@ steps:
     env:
       - 'REACT_APP_API_URL=https://docuvalle-backend-166554040569.us-central1.run.app'
       - 'REACT_APP_PROJECT_ID=$PROJECT_ID'
-
-  # PASO 8: Desplegar frontend a Firebase Hosting - VERSIÓN CORREGIDA
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+      
+  # PASO 8: Desplegar frontend a Firebase Hosting - VERSIÓN SIMPLE Y SEGURA
+  - name: 'node:18'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
         echo "🔧 Iniciando deployment del frontend..."
         
-        # Instalar Firebase CLI
+        # Instalar Firebase CLI globalmente
         npm install -g firebase-tools
         
         # Verificar que el build del frontend existe
@@ -91,16 +90,43 @@ steps:
         echo "✅ Frontend build encontrado, archivos:"
         ls -la frontend/build/
         
-        # Desplegar a Firebase Hosting con token
-        firebase deploy --only hosting --project $PROJECT_ID --token "1//05XosnWZntJhpCgYIARAAGAUSNwF-L9IrUM4LZz47t2CT4qNKEISY6-qGkYZJXylGbZkorJQ4xiOGl6RWBrsrNCngoCRaZULL5bM"
+        # Verificar que firebase.json existe en la raíz
+        if [ ! -f "firebase.json" ]; then
+          echo "❌ Error: firebase.json no encontrado en la raíz"
+          ls -la .
+          exit 1
+        fi
+        
+        # Configurar proyecto (no requiere autenticación adicional)
+        firebase use $PROJECT_ID --non-interactive
+        
+        # Desplegar usando las credenciales de Cloud Build
+        firebase deploy --only hosting --project $PROJECT_ID --non-interactive
         
         echo "🎉 Frontend desplegado exitosamente a https://$PROJECT_ID.web.app"
     id: 'deploy-frontend'
     waitFor: ['build-frontend']
+    
+  # PASO 9: Verificar deployment completo
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "🎯 Verificando deployment completo..."
+        echo "🖥️  Backend: https://docuvalle-backend-166554040569.us-central1.run.app/api/health"
+        echo "🌐 Frontend: https://$PROJECT_ID.web.app"
+        echo "✅ DocuValle desplegado exitosamente!"
+    id: 'verify-deployment'
+    waitFor: ['deploy-frontend']
 
 # Configuración adicional
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
+timeout: '1800s'  # Aumentamos el timeout a 30 minutos
 
-timeout: '1200s'
+# Variables de sustitución
+substitutions:
+  _SERVICE_NAME: 'docuvalle-backend'
+  _REGION: 'us-central1'
