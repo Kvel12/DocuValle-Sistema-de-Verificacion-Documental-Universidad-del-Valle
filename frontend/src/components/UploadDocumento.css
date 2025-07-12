@@ -1,4 +1,4 @@
-/* Estilos para el componente UploadDocumento */
+/* Estilos para el componente UploadDocumento (HU004) */
 
 .upload-documento-container {
   max-width: 900px;
@@ -32,12 +32,14 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  animation: fadeIn 0.3s ease;
 }
 
 .error-message p {
   margin: 0;
   color: #c62828;
   font-weight: 500;
+  flex-grow: 1;
 }
 
 .error-message button {
@@ -46,7 +48,13 @@
   color: #c62828;
   font-size: 1.2rem;
   cursor: pointer;
-  padding: 5px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.error-message button:hover {
+  background-color: rgba(198, 40, 40, 0.1);
 }
 
 /* Zona de dropzone */
@@ -121,6 +129,7 @@
 .btn-analizar,
 .btn-asignar,
 .btn-nuevo,
+.btn-nuevo-small,
 .btn-confirmar,
 .btn-cancelar {
   padding: 12px 24px;
@@ -178,6 +187,17 @@
 
 .btn-nuevo:hover {
   background-color: #7b1fa2;
+}
+
+.btn-nuevo-small {
+  background-color: #607d8b;
+  color: white;
+  font-size: 0.9rem;
+  padding: 10px 20px;
+}
+
+.btn-nuevo-small:hover {
+  background-color: #455a64;
 }
 
 /* Información del archivo subido */
@@ -296,11 +316,31 @@
 }
 
 /* Botones de resultado */
-.botones-resultado {
+.botones-resultado,
+.botones-analisis {
   display: flex;
   gap: 15px;
   justify-content: center;
   flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.botones-analisis {
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Responsive para botones */
+@media (max-width: 768px) {
+  .botones-analisis {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .botones-analisis .btn-analizar,
+  .botones-analisis .btn-nuevo-small {
+    width: 100%;
+  }
 }
 
 /* Modal de asignación */
