@@ -26,6 +26,6 @@ export const storage = getStorage(app); // Para subir archivos temporalmente
 
 // URL del backend que se desplegará en Cloud Run
 // Cloud Build la configurará automáticamente en el proceso de build
-export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+export const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://docuvalle-backend-166554040569.us-central1.run.app';
 
 export default app;
