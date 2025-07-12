@@ -1,5 +1,4 @@
-
-// Implementa drag & drop, preview y análisis automático
+// Componente para HU004: Subir y Procesar Documento
 
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
@@ -38,7 +37,7 @@ interface AsignacionUsuario {
   fechaAsignacion: string;
 }
 
-// URL del backend - actualiza esta línea en tu App.tsx o config
+// URL del backend
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://docuvalle-backend-166554040569.us-central1.run.app';
 
 const UploadDocumento: React.FC = () => {
@@ -59,9 +58,9 @@ const UploadDocumento: React.FC = () => {
   const [tipoDocumento, setTipoDocumento] = useState('');
   const [mostrarAsignacion, setMostrarAsignacion] = useState(false);
 
-  // Configuración de react-dropzone
+  // Configuración de react-dropzone - SOLO cuando no hay archivo subido
   const onDrop = useCallback((archivosAceptados: File[]) => {
-    if (archivosAceptados.length > 0) {
+    if (archivosAceptados.length > 0 && !archivoSubido) { // Evitamos bug cuando ya hay archivo subido
       setArchivo(archivosAceptados[0]);
       setArchivoSubido(null);
       setResultado(null);
@@ -69,7 +68,7 @@ const UploadDocumento: React.FC = () => {
       setError(null);
       console.log('📄 Archivo seleccionado:', archivosAceptados[0].name);
     }
-  }, []);
+  }, [archivoSubido]); // Dependencia importante
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -78,7 +77,8 @@ const UploadDocumento: React.FC = () => {
       'application/pdf': ['.pdf']
     },
     maxFiles: 1,
-    maxSize: 10 * 1024 * 1024 // 10MB máximo
+    maxSize: 10 * 1024 * 1024, // 10MB máximo
+    disabled: subiendo || analizando || !!archivoSubido // Deshabilitamos cuando está procesando o ya hay archivo subido
   });
 
   // PASO 1: Subir archivo
@@ -144,7 +144,7 @@ const UploadDocumento: React.FC = () => {
         nombreArchivo: archivoSubido.nombreArchivo,
         tipoArchivo: archivoSubido.tipoArchivo,
         tamanoArchivo: archivoSubido.tamanoArchivo,
-        userId: 'admin-usuario' // En producción vendrá del token JWT
+        userId: 'admin-usuario'
       };
 
       const respuesta = await axios.post(
@@ -163,7 +163,11 @@ const UploadDocumento: React.FC = () => {
       
       if (axios.isAxiosError(error)) {
         const errorData = error.response?.data;
-        setError(errorData?.message || 'Error analizando el documento');
+        if (error.response?.status === 404) {
+          setError('El endpoint de análisis no está disponible. Verifica que el backend tenga los nuevos endpoints.');
+        } else {
+          setError(errorData?.message || 'Error analizando el documento');
+        }
       } else {
         setError('Error de conexión analizando el documento');
       }
@@ -172,7 +176,7 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // Asignar documento a usuario
+  // HU006 - Asignar documento a usuario
   const asignarDocumento = async () => {
     if (!resultado || !nombreUsuario.trim()) {
       setError('Completa el nombre del usuario');
@@ -234,16 +238,16 @@ const UploadDocumento: React.FC = () => {
 
   return (
     <div className="upload-documento-container">
-      <h2>📄 Procesar Documento</h2>
+      <h2>📄 Procesar Documento (HU004)</h2>
       
       {error && (
         <div className="error-message">
           <p>❌ {error}</p>
-          <button onClick={() => setError(null)}>✕ Cerrar</button>
+          <button onClick={() => setError(null)}>✕</button>
         </div>
       )}
 
-      {/* PASO 1: Selección de archivo */}
+      {/* PASO 1: Selección de archivo - SOLO si no hay archivo subido */}
       {!archivoSubido && (
         <section className="paso-seleccion">
           <h3>Paso 1: Seleccionar Archivo</h3>
@@ -272,11 +276,20 @@ const UploadDocumento: React.FC = () => {
                 )}
                 
                 <div className="botones-archivo">
-                  <button onClick={() => setArchivo(null)} className="btn-limpiar">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation(); // Evitamos que se abra el diálogo de archivos
+                      setArchivo(null);
+                    }} 
+                    className="btn-limpiar"
+                  >
                     Seleccionar otro archivo
                   </button>
                   <button 
-                    onClick={subirArchivo} 
+                    onClick={(e) => {
+                      e.stopPropagation(); // Evitamos que se abra el diálogo de archivos
+                      subirArchivo();
+                    }} 
                     disabled={subiendo}
                     className="btn-subir"
                   >
@@ -311,13 +324,22 @@ const UploadDocumento: React.FC = () => {
             <p><strong>📅 Subido:</strong> {new Date(archivoSubido.fechaSubida).toLocaleString()}</p>
           </div>
 
-          <button 
-            onClick={analizarDocumento} 
-            disabled={analizando}
-            className="btn-analizar"
-          >
-            {analizando ? '⏳ Analizando...' : '🔍 Analizar Documento'}
-          </button>
+          <div className="botones-analisis">
+            <button 
+              onClick={analizarDocumento} 
+              disabled={analizando}
+              className="btn-analizar"
+            >
+              {analizando ? '⏳ Analizando...' : '🔍 Analizar Documento'}
+            </button>
+            
+            <button 
+              onClick={reiniciarProceso}
+              className="btn-nuevo-small"
+            >
+              📄 Subir Otro Archivo
+            </button>
+          </div>
         </section>
       )}
 
@@ -381,7 +403,7 @@ const UploadDocumento: React.FC = () => {
         </section>
       )}
 
-      {/* MODAL: Asignar documento a usuario (HU006) */}
+      {/* MODAL: Asignar documento a usuario */}
       {mostrarAsignacion && (
         <div className="modal-asignacion">
           <div className="modal-content">
