@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 // Importamos nuestras configuraciones de servicios de Google Cloud
 import { initializeFirebaseAdmin, db, storage } from './config/firebase';
-import { VisionService } from './services/visionService';
+import { VisionService, AnalisisVisual } from './services/visionService';
 import { DocumentService } from './services/documentService';
 
 // Inicializamos la aplicación Express - nuestro servidor web
@@ -58,7 +58,7 @@ app.get('/api/health', (req, res) => {
     message: '🚀 DocuValle Backend está funcionando correctamente',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    version: '1.0.0'
+    version: '2.0.0' // Versión actualizada
   });
 });
 
@@ -178,7 +178,7 @@ app.get('/api/test-storage', async (req, res) => {
   }
 });
 
-// ENDPOINTS NUEVOS
+// ENDPOINTS PRINCIPALES
 
 app.post('/api/documents/upload', upload.single('archivo'), async (req, res) => {
   try {
@@ -272,7 +272,7 @@ app.post('/api/documents/analyze', async (req, res) => {
 
     const bucket = storage.bucket('apt-cubist-368817.firebasestorage.app');
     
-    // CORRECCIÓN: Extraer la ruta completa del archivo dentro del bucket
+    // Extraer la ruta completa del archivo dentro del bucket
     const bucketName = 'apt-cubist-368817.firebasestorage.app';
     const baseUrl = `https://storage.googleapis.com/${bucketName}/`;
     
@@ -284,7 +284,6 @@ app.post('/api/documents/analyze', async (req, res) => {
       });
     }
     
-    // Extraemos la ruta completa dentro del bucket (incluye carpetas)
     const filePath = archivoUrl.replace(baseUrl, '');
     console.log(`📂 Ruta del archivo en bucket: ${filePath}`);
     
@@ -308,11 +307,12 @@ app.post('/api/documents/analyze', async (req, res) => {
     console.log('📥 Descargando archivo de Cloud Storage...');
     const [fileBuffer] = await file.download();
 
-    console.log('🤖 Procesando con Vision API...');
-    const textoExtraido = await visionService.detectTextFromBuffer(fileBuffer, tipoArchivo);
+    console.log('🤖 Procesando con Vision API mejorado...');
+    // CAMBIO PRINCIPAL: Usar el análisis completo en lugar de solo texto
+    const analisisCompleto: AnalisisVisual = await visionService.analizarDocumentoCompleto(fileBuffer, tipoArchivo);
 
-    console.log('📊 Calculando score de autenticidad...');
-    const analisisAutenticidad = await calcularScoreAutenticidad(textoExtraido, tipoArchivo);
+    console.log('📊 Calculando score de autenticidad mejorado...');
+    const analisisAutenticidad = await calcularScoreAutenticidadMejorado(analisisCompleto, tipoArchivo);
 
     console.log('💾 Guardando resultados...');
     const userId = req.body.userId || 'usuario-temporal';
@@ -324,12 +324,23 @@ app.post('/api/documents/analyze', async (req, res) => {
       tipoArchivo: tipoArchivo,
       tamanoArchivo: tamanoArchivo,
       archivoUrl: archivoUrl,
-      textoExtraido: textoExtraido,
+      textoExtraido: analisisCompleto.textoExtraido,
       fechaProcesamiento: new Date(),
       estado: 'completado',
       scoreAutenticidad: analisisAutenticidad.score,
       recomendacion: analisisAutenticidad.recomendacion,
-      elementosSeguridad: analisisAutenticidad.elementos
+      elementosSeguridad: analisisAutenticidad.elementos,
+      metadatos: {
+        numeroCaracteres: analisisCompleto.textoExtraido.length,
+        numeroPalabras: analisisCompleto.textoExtraido.split(/\s+/).length,
+        numeroLineas: analisisCompleto.textoExtraido.split('\n').length,
+        calidad: analisisCompleto.calidad.claridadTexto,
+        // Nuevos metadatos del análisis visual
+        objetosDetectados: analisisCompleto.objetosDetectados.length,
+        logosProcesados: analisisCompleto.elementosSeguridad.detallesLogos,
+        sellosProcesados: analisisCompleto.elementosSeguridad.detallesSellos,
+        firmasProcesadas: analisisCompleto.elementosSeguridad.detallesFirmas
+      }
     });
 
     console.log(`✅ Documento analizado exitosamente: ${documentoId}`);
@@ -339,14 +350,24 @@ app.post('/api/documents/analyze', async (req, res) => {
       message: '🎉 Documento analizado exitosamente',
       resultado: {
         id: documentoId,
-        textoExtraido: textoExtraido.substring(0, 1000) + (textoExtraido.length > 1000 ? '...' : ''),
-        numeroCaracteres: textoExtraido.length,
+        textoExtraido: analisisCompleto.textoExtraido.substring(0, 1000) + (analisisCompleto.textoExtraido.length > 1000 ? '...' : ''),
+        numeroCaracteres: analisisCompleto.textoExtraido.length,
         scoreAutenticidad: analisisAutenticidad.score,
         recomendacion: analisisAutenticidad.recomendacion,
         recomendacionTexto: getRecomendacionTexto(analisisAutenticidad.recomendacion),
         elementosSeguridad: analisisAutenticidad.elementos,
         archivoUrl: archivoUrl,
-        fechaAnalisis: new Date().toISOString()
+        fechaAnalisis: new Date().toISOString(),
+        // Datos adicionales del análisis mejorado
+        analisisDetallado: {
+          objetosDetectados: analisisCompleto.objetosDetectados,
+          calidadDocumento: analisisCompleto.calidad,
+          detallesElementos: {
+            sellos: analisisCompleto.elementosSeguridad.detallesSellos,
+            firmas: analisisCompleto.elementosSeguridad.detallesFirmas,
+            logos: analisisCompleto.elementosSeguridad.detallesLogos
+          }
+        }
       }
     });
 
@@ -565,7 +586,9 @@ app.post('/api/procesar-documento', upload.single('archivo'), async (req, res) =
 
     const procesamientoId = uuidv4();
     const archivoUrl = await documentService.uploadFile(archivo, procesamientoId);
-    const textoExtraido = await visionService.detectTextFromBuffer(archivo.buffer, archivo.mimetype);
+    
+    // Usar el nuevo método de análisis completo
+    const analisisCompleto = await visionService.analizarDocumentoCompleto(archivo.buffer, archivo.mimetype);
     
     const resultado = await documentService.saveProcessingResult({
       id: procesamientoId,
@@ -574,7 +597,7 @@ app.post('/api/procesar-documento', upload.single('archivo'), async (req, res) =
       tipoArchivo: archivo.mimetype,
       tamanoArchivo: archivo.size,
       archivoUrl,
-      textoExtraido,
+      textoExtraido: analisisCompleto.textoExtraido,
       fechaProcesamiento: new Date(),
       estado: 'completado'
     });
@@ -584,8 +607,8 @@ app.post('/api/procesar-documento', upload.single('archivo'), async (req, res) =
       message: '🎉 Documento procesado exitosamente',
       resultado: {
         id: procesamientoId,
-        textoExtraido: textoExtraido.substring(0, 500) + (textoExtraido.length > 500 ? '...' : ''),
-        numeroCaracteres: textoExtraido.length,
+        textoExtraido: analisisCompleto.textoExtraido.substring(0, 500) + (analisisCompleto.textoExtraido.length > 500 ? '...' : ''),
+        numeroCaracteres: analisisCompleto.textoExtraido.length,
         archivoUrl
       }
     });
@@ -620,73 +643,153 @@ app.get('/api/documentos/:userId', async (req, res) => {
   }
 });
 
-// FUNCIONES AUXILIARES
+// FUNCIÓN MEJORADA DE SCORING DE AUTENTICIDAD
 
-async function calcularScoreAutenticidad(textoExtraido: string, tipoArchivo: string) {
-  console.log('📊 Calculando score de autenticidad...');
+/**
+ * Algoritmo mejorado de scoring de autenticidad basado en análisis visual
+ * Ahora utiliza elementos realmente detectados por Vision API
+ */
+async function calcularScoreAutenticidadMejorado(analisisVisual: AnalisisVisual, tipoArchivo: string) {
+  console.log('📊 Calculando score de autenticidad con algoritmo mejorado...');
   
   let score = 0;
   const elementos = {
-    sellos: false,
-    firmas: false,
-    logos: false
+    sellos: analisisVisual.elementosSeguridad.sellos,
+    firmas: analisisVisual.elementosSeguridad.firmas,
+    logos: analisisVisual.elementosSeguridad.logos
   };
 
-  // Factor 1: Calidad del texto extraído (30 puntos máximo)
-  const palabras = textoExtraido.split(/\s+/).filter(p => p.length > 0);
-  if (palabras.length > 50 && textoExtraido.length > 200) {
-    score += 30;
-  } else if (palabras.length > 20) {
-    score += 20;
-  } else {
-    score += 10;
-  }
+  const detallesScoring = {
+    factorTexto: 0,
+    factorElementosSeguridad: 0,
+    factorCalidad: 0,
+    factorEstructura: 0,
+    bonificaciones: 0
+  };
 
-  // Factor 2: Detección de elementos de seguridad (40 puntos máximo)
-  const textoLower = textoExtraido.toLowerCase();
+  // Factor 1: Calidad del texto extraído (25 puntos máximo)
+  const palabras = analisisVisual.textoExtraido.split(/\s+/).filter(p => p.length > 0);
+  const caracteres = analisisVisual.textoExtraido.length;
   
-  if (textoLower.includes('sello') || textoLower.includes('oficial') || textoLower.includes('registro')) {
-    elementos.sellos = true;
-    score += 15;
+  if (analisisVisual.calidad.claridadTexto === 'alta' && palabras.length > 50 && caracteres > 200) {
+    detallesScoring.factorTexto = 25;
+  } else if (analisisVisual.calidad.claridadTexto === 'media' && palabras.length > 20) {
+    detallesScoring.factorTexto = 18;
+  } else if (palabras.length > 10) {
+    detallesScoring.factorTexto = 12;
+  } else {
+    detallesScoring.factorTexto = 5;
   }
 
-  if (textoLower.includes('firma') || textoLower.includes('director') || textoLower.includes('rector')) {
-    elementos.firmas = true;
-    score += 15;
+  // Factor 2: Elementos de seguridad REALMENTE detectados (45 puntos máximo)
+  if (elementos.sellos && analisisVisual.elementosSeguridad.detallesSellos.length > 0) {
+    // Puntuación basada en la calidad de la detección de sellos
+    const confianzaSellos = extraerConfianzaPromedio(analisisVisual.elementosSeguridad.detallesSellos);
+    detallesScoring.factorElementosSeguridad += Math.round(18 * confianzaSellos);
+    console.log(`🏛️ Sellos detectados con confianza promedio: ${Math.round(confianzaSellos * 100)}%`);
   }
 
-  if (textoLower.includes('universidad') || textoLower.includes('colegio') || textoLower.includes('instituto')) {
-    elementos.logos = true;
-    score += 10;
+  if (elementos.firmas && analisisVisual.elementosSeguridad.detallesFirmas.length > 0) {
+    const confianzaFirmas = extraerConfianzaPromedio(analisisVisual.elementosSeguridad.detallesFirmas);
+    detallesScoring.factorElementosSeguridad += Math.round(15 * confianzaFirmas);
+    console.log(`✍️ Firmas detectadas con confianza promedio: ${Math.round(confianzaFirmas * 100)}%`);
   }
 
-  // Factor 3: Consistencia de formato (30 puntos máximo)
-  if (textoLower.includes('certificado') || textoLower.includes('diploma') || textoLower.includes('título')) {
-    score += 15;
-  }
-  if (textoExtraido.match(/\d{4}/)) {
-    score += 10;
-  }
-  if (textoExtraido.match(/\d{1,2}\/\d{1,2}\/\d{4}/)) {
-    score += 5;
+  if (elementos.logos && analisisVisual.elementosSeguridad.detallesLogos.length > 0) {
+    const confianzaLogos = extraerConfianzaPromedio(analisisVisual.elementosSeguridad.detallesLogos);
+    detallesScoring.factorElementosSeguridad += Math.round(12 * confianzaLogos);
+    console.log(`🎯 Logos detectados con confianza promedio: ${Math.round(confianzaLogos * 100)}%`);
   }
 
+  // Factor 3: Calidad general del documento (20 puntos máximo)
+  if (analisisVisual.calidad.estructuraDocumento === 'formal') {
+    detallesScoring.factorCalidad = 20;
+  } else if (analisisVisual.calidad.estructuraDocumento === 'informal') {
+    detallesScoring.factorCalidad = 12;
+  } else {
+    detallesScoring.factorCalidad = 5;
+  }
+
+  // Factor 4: Análisis de estructura y formato (10 puntos máximo)
+  const textoLower = analisisVisual.textoExtraido.toLowerCase();
+  
+  // Verificar palabras clave de documentos formales
+  const palabrasFormalesEncontradas = [
+    'certificado', 'diploma', 'título', 'universidad', 'colegio', 'instituto',
+    'director', 'rector', 'registro', 'oficial', 'certificate', 'degree'
+  ].filter(palabra => textoLower.includes(palabra)).length;
+
+  if (palabrasFormalesEncontradas >= 3) {
+    detallesScoring.factorEstructura = 10;
+  } else if (palabrasFormalesEncontradas >= 2) {
+    detallesScoring.factorEstructura = 6;
+  } else if (palabrasFormalesEncontradas >= 1) {
+    detallesScoring.factorEstructura = 3;
+  }
+
+  // Bonificaciones por múltiples elementos de seguridad (bonus hasta 10 puntos)
+  const elementosDetectados = [elementos.sellos, elementos.firmas, elementos.logos].filter(Boolean).length;
+  
+  if (elementosDetectados === 3) {
+    detallesScoring.bonificaciones = 10; // Documento muy completo
+  } else if (elementosDetectados === 2) {
+    detallesScoring.bonificaciones = 5;
+  }
+
+  // Bonificación por alta calidad general
+  if (analisisVisual.calidad.claridadTexto === 'alta' && 
+      analisisVisual.calidad.estructuraDocumento === 'formal') {
+    detallesScoring.bonificaciones += 5;
+  }
+
+  // Calcular score final
+  score = detallesScoring.factorTexto + 
+          detallesScoring.factorElementosSeguridad + 
+          detallesScoring.factorCalidad + 
+          detallesScoring.factorEstructura + 
+          detallesScoring.bonificaciones;
+
+  // Asegurar que el score esté entre 0 y 100
+  score = Math.min(100, Math.max(0, score));
+
+  // Determinar recomendación con umbrales ajustados
   let recomendacion: 'accept' | 'review' | 'reject';
-  if (score >= 80) {
+  if (score >= 85) {
     recomendacion = 'accept';
-  } else if (score >= 50) {
+  } else if (score >= 60) {
     recomendacion = 'review';
   } else {
     recomendacion = 'reject';
   }
 
-  console.log(`📊 Score calculado: ${score}/100 - Recomendación: ${recomendacion}`);
+  console.log(`📊 Score final calculado: ${score}/100`);
+  console.log(`   - Factor texto: ${detallesScoring.factorTexto}/25`);
+  console.log(`   - Factor elementos seguridad: ${detallesScoring.factorElementosSeguridad}/45`);
+  console.log(`   - Factor calidad: ${detallesScoring.factorCalidad}/20`);
+  console.log(`   - Factor estructura: ${detallesScoring.factorEstructura}/10`);
+  console.log(`   - Bonificaciones: ${detallesScoring.bonificaciones}/15`);
+  console.log(`   - Recomendación: ${recomendacion}`);
 
   return {
     score,
     recomendacion,
-    elementos
+    elementos,
+    detalles: detallesScoring
   };
+}
+
+/**
+ * Extrae el promedio de confianza de un array de strings con formato "Elemento (XX%)"
+ */
+function extraerConfianzaPromedio(detalles: string[]): number {
+  if (detalles.length === 0) return 0;
+  
+  const confianzas = detalles.map(detalle => {
+    const match = detalle.match(/\((\d+)%\)/);
+    return match ? parseInt(match[1]) / 100 : 0.5; // Default 50% si no se puede extraer
+  });
+  
+  return confianzas.reduce((a, b) => a + b, 0) / confianzas.length;
 }
 
 function getRecomendacionTexto(recomendacion: string): string {
@@ -742,6 +845,7 @@ async function startServer() {
     console.log(`🚀 DocuValle Backend ejecutándose en puerto ${PORT}`);
     console.log(`🌐 Health check: http://localhost:${PORT}/api/health`);
     console.log(`📄 Documentación API disponible en: http://localhost:${PORT}/api/`);
+    console.log(`🔍 Versión con detección de elementos de seguridad mejorada activada`);
   });
 }
 
