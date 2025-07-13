@@ -1,4 +1,4 @@
-// Servicio especializado en Vision API con soporte para PDFs y análisis de texto mejorado
+// Servicio especializado en Vision API con soporte real para PDFs
 
 import { ImageAnnotatorClient } from '@google-cloud/vision';
 
@@ -84,7 +84,7 @@ export class VisionService {
   }
 
   /**
-   * Análisis completo del documento con soporte mejorado para PDFs
+   * Análisis completo del documento con manejo real de PDFs
    */
   async analizarDocumentoCompleto(buffer: Buffer, mimeType: string): Promise<AnalisisVisual> {
     try {
@@ -103,10 +103,10 @@ export class VisionService {
 
       console.log(`🔍 Análisis completo - Archivo: ${mimeType}, tamaño: ${buffer.length} bytes`);
 
-      // Para PDFs, usamos solo texto ya que Vision API no procesa PDFs directamente
+      // CORREGIDO: Para PDFs, intentamos procesarlo directamente con Vision API
       if (mimeType === 'application/pdf') {
-        console.log('📄 Procesando PDF - usando solo análisis de texto');
-        return await this.analizarSoloTexto(buffer, mimeType);
+        console.log('📄 Procesando PDF directamente con Vision API...');
+        return await this.procesarPDFConVisionAPI(buffer);
       }
 
       // Para imágenes, usamos el análisis completo de Vision API
@@ -180,27 +180,68 @@ export class VisionService {
   }
 
   /**
-   * NUEVA FUNCIÓN: Análisis especial para PDFs usando solo texto extraído
+   * CORREGIDO: Procesamiento real de PDFs con Vision API
    */
-  private async analizarSoloTexto(buffer: Buffer, mimeType: string): Promise<AnalisisVisual> {
-    // Para PDFs, simulamos que podemos extraer algo de texto básico
-    // En un entorno real, aquí usarías una librería como pdf-parse
-    const textoSimulado = `
-      Microsoft MVP Most Valuable Professional
-      CERTIFICADO
-      Otorgado a: [NOMBRE_USUARIO]
-      En reconocimiento por su participación
-      Daniel Gomez - Microsoft MVP
-      Gustavo Mejía - MLSA  
-      Marcela Sabogal - MLSA
-      Se expide el [FECHA]
-    `;
+  private async procesarPDFConVisionAPI(buffer: Buffer): Promise<AnalisisVisual> {
+    try {
+      // Vision API puede procesar PDFs directamente
+      const request = {
+        image: {
+          content: buffer.toString('base64'),
+        },
+        features: [
+          { type: 'DOCUMENT_TEXT_DETECTION' as const, maxResults: 1 },
+          { type: 'TEXT_DETECTION' as const, maxResults: 1 }
+        ],
+        imageContext: {
+          languageHints: ['es', 'en']
+        }
+      };
 
-    const analisis: AnalisisVisual = {
-      textoExtraido: textoSimulado.trim(),
+      console.log('🤖 Enviando PDF a Vision API para análisis de texto...');
+      const [result] = await this.visionClient.annotateImage(request);
+
+      if (result.error) {
+        console.warn(`⚠️ Vision API no pudo procesar el PDF: ${result.error.message}`);
+        // Si Vision API no puede procesar el PDF, retornamos un análisis básico
+        return this.crearAnalisisBasicoPDF();
+      }
+
+      // Si Vision API pudo procesar el PDF, extraemos la información
+      const textoExtraido = this.extraerTexto(result);
+      
+      if (!textoExtraido || textoExtraido.includes('No se pudo extraer texto')) {
+        console.warn('⚠️ No se pudo extraer texto del PDF');
+        return this.crearAnalisisBasicoPDF();
+      }
+
+      const analisis: AnalisisVisual = {
+        textoExtraido: textoExtraido,
+        elementosSeguridad: await this.analizarElementosSeguridad(result, textoExtraido),
+        objetosDetectados: this.procesarObjetosDetectados(result),
+        calidad: this.evaluarCalidadDocumento(result, textoExtraido)
+      };
+
+      console.log(`📄 PDF procesado exitosamente - Texto: ${textoExtraido.length} caracteres`);
+      return analisis;
+
+    } catch (error) {
+      console.warn(`⚠️ Error procesando PDF con Vision API: ${error}`);
+      return this.crearAnalisisBasicoPDF();
+    }
+  }
+
+  /**
+   * NUEVO: Crear análisis básico cuando no se puede procesar el PDF
+   */
+  private crearAnalisisBasicoPDF(): AnalisisVisual {
+    console.log('📄 Creando análisis básico para PDF no procesable');
+    
+    return {
+      textoExtraido: 'No se pudo extraer texto del archivo PDF. El archivo puede estar protegido, ser una imagen escaneada sin OCR, o tener un formato no compatible.',
       elementosSeguridad: {
         sellos: false,
-        firmas: false, 
+        firmas: false,
         logos: false,
         detallesSellos: [],
         detallesFirmas: [],
@@ -208,13 +249,11 @@ export class VisionService {
       },
       objetosDetectados: [],
       calidad: {
-        claridadTexto: 'media',
+        claridadTexto: 'baja',
         resolucion: 'media',
-        estructuraDocumento: 'informal'
+        estructuraDocumento: 'dudosa'
       }
     };
-
-    return analisis;
   }
 
   /**
@@ -251,7 +290,7 @@ export class VisionService {
   }
 
   /**
-   * FUNCIÓN MEJORADA: Analiza elementos de seguridad usando Vision API Y análisis de texto
+   * Analiza elementos de seguridad usando Vision API Y análisis de texto
    */
   private async analizarElementosSeguridad(result: any, textoExtraido: string): Promise<AnalisisVisual['elementosSeguridad']> {
     const elementos = {
@@ -267,7 +306,7 @@ export class VisionService {
     if (result.logoAnnotations && result.logoAnnotations.length > 0) {
       elementos.logos = true;
       result.logoAnnotations.forEach((logo: any) => {
-        if (logo.score > 0.3) { // Umbral más bajo para ser más permisivo
+        if (logo.score > 0.3) {
           elementos.detallesLogos.push(`${logo.description} (${Math.round(logo.score * 100)}%)`);
           console.log(`🎯 Logo detectado: ${logo.description} - Confianza: ${Math.round(logo.score * 100)}%`);
         }
@@ -280,7 +319,7 @@ export class VisionService {
         const nombre = objeto.name.toLowerCase();
         const confianza = objeto.score;
         
-        if (confianza > 0.3) { // Umbral más bajo
+        if (confianza > 0.3) {
           if (this.esProbableSello(nombre)) {
             elementos.sellos = true;
             elementos.detallesSellos.push(`${objeto.name} (${Math.round(confianza * 100)}%)`);
@@ -321,30 +360,32 @@ export class VisionService {
       });
     }
 
-    // 4. NUEVO: Análisis basado en texto extraído
-    const analisisTexto = this.analizarElementosPorTexto(textoExtraido);
-    
-    // Combinamos resultados
-    if (analisisTexto.logos.length > 0) {
-      elementos.logos = true;
-      elementos.detallesLogos.push(...analisisTexto.logos);
-    }
-    
-    if (analisisTexto.firmas.length > 0) {
-      elementos.firmas = true;
-      elementos.detallesFirmas.push(...analisisTexto.firmas);
-    }
-    
-    if (analisisTexto.sellos.length > 0) {
-      elementos.sellos = true;
-      elementos.detallesSellos.push(...analisisTexto.sellos);
+    // 4. Análisis basado en texto extraído (solo si hay texto válido)
+    if (textoExtraido && !textoExtraido.includes('No se pudo extraer texto')) {
+      const analisisTexto = this.analizarElementosPorTexto(textoExtraido);
+      
+      // Combinamos resultados solo si encontramos elementos en el texto
+      if (analisisTexto.logos.length > 0) {
+        elementos.logos = true;
+        elementos.detallesLogos.push(...analisisTexto.logos);
+      }
+      
+      if (analisisTexto.firmas.length > 0) {
+        elementos.firmas = true;
+        elementos.detallesFirmas.push(...analisisTexto.firmas);
+      }
+      
+      if (analisisTexto.sellos.length > 0) {
+        elementos.sellos = true;
+        elementos.detallesSellos.push(...analisisTexto.sellos);
+      }
     }
 
     return elementos;
   }
 
   /**
-   * NUEVA FUNCIÓN: Analiza elementos de seguridad basado en el texto extraído
+   * Analiza elementos de seguridad basado en el texto extraído
    */
   private analizarElementosPorTexto(texto: string): {
     logos: string[];
@@ -360,38 +401,38 @@ export class VisionService {
     const textoLower = texto.toLowerCase();
     const lineas = texto.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
-    // Detectar logos/organizaciones
+    // Detectar logos/organizaciones conocidas
     const organizaciones = [
-      'microsoft', 'mvp', 'student ambassador', 'mlsa', 'google', 'amazon', 'azure',
-      'universidad', 'colegio', 'instituto', 'bootcamp', 'dev show'
+      { nombre: 'Microsoft', palabras: ['microsoft'] },
+      { nombre: 'MVP', palabras: ['mvp', 'most valuable professional'] },
+      { nombre: 'Student Ambassador', palabras: ['student ambassador', 'mlsa'] },
+      { nombre: 'Google', palabras: ['google'] },
+      { nombre: 'Amazon', palabras: ['amazon', 'aws'] },
+      { nombre: 'Universidad', palabras: ['universidad', 'university'] },
+      { nombre: 'Instituto', palabras: ['instituto', 'institute'] },
+      { nombre: 'Bootcamp', palabras: ['bootcamp'] }
     ];
 
     organizaciones.forEach(org => {
-      if (textoLower.includes(org)) {
-        resultado.logos.push(`Organización detectada: ${org} (análisis de texto)`);
-        console.log(`🎯 Organización detectada en texto: ${org}`);
+      const encontrado = org.palabras.some(palabra => textoLower.includes(palabra));
+      if (encontrado) {
+        resultado.logos.push(`Organización detectada: ${org.nombre} (análisis de texto)`);
+        console.log(`🎯 Organización detectada en texto: ${org.nombre}`);
       }
     });
 
-    // Detectar firmas basado en nombres después de organizaciones
-    const patronesFirma = [
-      /^[A-Z][a-z]+ [A-Z][a-z]+$/,  // Patrón Nombre Apellido
-      /^[A-Z][a-z]+ [A-Z]\. [A-Z][a-z]+$/, // Nombre A. Apellido
-      /director|rector|coordinador|presidente/i
-    ];
-
+    // Detectar firmas basado en patrones reales
     lineas.forEach(linea => {
-      // Buscar nombres que sigan a títulos o organizaciones
       if (this.esLineaConFirma(linea)) {
-        resultado.firmas.push(`Posible firma: ${linea} (análisis de texto)`);
-        console.log(`✍️ Posible firma detectada en texto: ${linea}`);
+        resultado.firmas.push(`Posible firma: ${linea.trim()} (análisis de texto)`);
+        console.log(`✍️ Posible firma detectada en texto: ${linea.trim()}`);
       }
     });
 
     // Detectar sellos/certificaciones
     const indicadoresSellos = [
       'certificado', 'diploma', 'se expide', 'otorgado', 'reconocimiento',
-      'registro', 'oficial', 'válido hasta', 'sello'
+      'registro', 'oficial', 'válido hasta', 'sello', 'certificate', 'issued'
     ];
 
     indicadoresSellos.forEach(indicador => {
@@ -408,7 +449,7 @@ export class VisionService {
    * Determina si una línea contiene una posible firma
    */
   private esLineaConFirma(linea: string): boolean {
-    // Buscar patrones de nombres con títulos
+    // Buscar patrones de nombres con títulos o cargos
     const patronesNombre = [
       /^[A-Z][a-z]+ [A-Z][a-z]+$/, // Juan Pérez
       /^[A-Z][a-z]+ [A-Z]\. [A-Z][a-z]+$/, // Juan A. Pérez
@@ -417,13 +458,25 @@ export class VisionService {
 
     const tienePatronNombre = patronesNombre.some(patron => patron.test(linea.trim()));
     
-    // Verificar si la línea anterior o posterior tiene indicadores de autoridad
-    const indicadoresAutoridad = ['mvp', 'director', 'rector', 'coordinador', 'microsoft', 'mlsa'];
+    // Verificar si la línea tiene indicadores de autoridad sin ser parte del texto general
+    const indicadoresAutoridad = ['director', 'rector', 'coordinador', 'presidente', 'gerente'];
     const tieneIndicadorAutoridad = indicadoresAutoridad.some(indicador => 
       linea.toLowerCase().includes(indicador)
     );
 
-    return tienePatronNombre && !tieneIndicadorAutoridad; // Nombre sin ser parte del indicador
+    // Es firma si tiene patrón de nombre Y (tiene indicador de autoridad O está después de organización)
+    return tienePatronNombre && (tieneIndicadorAutoridad || this.esProbableLineaFirma(linea));
+  }
+
+  /**
+   * Verifica si es probable que sea una línea de firma
+   */
+  private esProbableLineaFirma(linea: string): boolean {
+    const lineaLower = linea.toLowerCase();
+    // Buscar patrones como "Nombre - Cargo" o "Nombre, Cargo"
+    return lineaLower.includes(' - ') || lineaLower.includes(', ') || 
+           lineaLower.includes('mvp') || lineaLower.includes('director') ||
+           lineaLower.includes('microsoft') || lineaLower.includes('mlsa');
   }
 
   /**
@@ -435,7 +488,7 @@ export class VisionService {
     // Agregar logos
     if (result.logoAnnotations) {
       result.logoAnnotations.forEach((logo: any) => {
-        if (logo.score > 0.3) { // Umbral más bajo
+        if (logo.score > 0.3) {
           objetos.push({
             nombre: logo.description,
             confianza: logo.score,
@@ -448,7 +501,7 @@ export class VisionService {
     // Agregar objetos localizados
     if (result.localizedObjectAnnotations) {
       result.localizedObjectAnnotations.forEach((objeto: any) => {
-        if (objeto.score > 0.3) { // Umbral más bajo
+        if (objeto.score > 0.3) {
           objetos.push({
             nombre: objeto.name,
             confianza: objeto.score,
@@ -472,27 +525,33 @@ export class VisionService {
     };
 
     // Evaluar claridad del texto basado en longitud y palabras
-    const palabras = textoExtraido.split(/\s+/).filter(p => p.length > 0);
-    
-    if (palabras.length > 50 && textoExtraido.length > 300) {
-      calidad.claridadTexto = 'alta';
-    } else if (palabras.length > 20 && textoExtraido.length > 100) {
-      calidad.claridadTexto = 'media';
+    if (textoExtraido && !textoExtraido.includes('No se pudo extraer texto')) {
+      const palabras = textoExtraido.split(/\s+/).filter(p => p.length > 0);
+      
+      if (palabras.length > 50 && textoExtraido.length > 300) {
+        calidad.claridadTexto = 'alta';
+      } else if (palabras.length > 20 && textoExtraido.length > 100) {
+        calidad.claridadTexto = 'media';
+      } else {
+        calidad.claridadTexto = 'baja';
+      }
+
+      // Evaluar estructura del documento
+      const textoFormal = this.analizarFormalidadTexto(textoExtraido);
+      const tieneLogos = result.logoAnnotations?.some((logo: any) => logo.score > 0.3);
+      const tieneEstructura = textoExtraido.toLowerCase().includes('certificado') || 
+                             textoExtraido.toLowerCase().includes('diploma');
+
+      if (textoFormal && tieneLogos && tieneEstructura) {
+        calidad.estructuraDocumento = 'formal';
+      } else if (textoFormal || tieneEstructura) {
+        calidad.estructuraDocumento = 'informal';
+      } else {
+        calidad.estructuraDocumento = 'dudosa';
+      }
     } else {
+      // Si no hay texto, la calidad es baja
       calidad.claridadTexto = 'baja';
-    }
-
-    // Evaluar estructura del documento
-    const textoFormal = this.analizarFormalidadTexto(textoExtraido);
-    const tieneLogos = result.logoAnnotations?.some((logo: any) => logo.score > 0.3);
-    const tieneEstructura = textoExtraido.toLowerCase().includes('certificado') || 
-                           textoExtraido.toLowerCase().includes('diploma');
-
-    if (textoFormal && tieneLogos && tieneEstructura) {
-      calidad.estructuraDocumento = 'formal';
-    } else if (textoFormal || tieneEstructura) {
-      calidad.estructuraDocumento = 'informal';
-    } else {
       calidad.estructuraDocumento = 'dudosa';
     }
 
