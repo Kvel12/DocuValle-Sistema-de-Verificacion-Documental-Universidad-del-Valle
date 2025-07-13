@@ -1,4 +1,4 @@
-// Componente para HU004: Subir y Procesar Documento
+// Subir y Procesar Documento
 
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
@@ -238,7 +238,7 @@ const UploadDocumento: React.FC = () => {
 
   return (
     <div className="upload-documento-container">
-      <h2>📄 Procesar Documento (HU004)</h2>
+      <h2>📄 Procesar Documento</h2>
       
       {error && (
         <div className="error-message">
