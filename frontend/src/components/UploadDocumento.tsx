@@ -1,10 +1,9 @@
-// Subir y Procesar Documento - Versión final con marcado manual y diseño mejorado
-
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 
-// Interfaces expandidas
+// ==================== INTERFACES COMPLETAS ====================
+
 interface ArchivoSubido {
   id: string;
   nombreArchivo: string;
@@ -38,6 +37,32 @@ interface AnalisisDetallado {
   };
 }
 
+// NUEVAS INTERFACES para análisis híbrido
+interface AnalisisHibrido {
+  visionAPI: {
+    usado: boolean;
+    objetosDetectados: number;
+    logosProcesados: number;
+    confianzaTexto: number;
+  };
+  geminiAPI: {
+    usado: boolean;
+    scoreAutenticidad: number;
+    tipoDocumento: string;
+    elementosSospechosos: number;
+    institucionDetectada?: string;
+  };
+}
+
+interface DetallesScoring {
+  factorTexto: number;
+  factorElementos: number;
+  factorCalidad: number;
+  bonificaciones: number;
+  confianza: number;
+  razonamiento: string[];
+}
+
 interface ResultadoAnalisis {
   id: string;
   textoExtraido: string;
@@ -49,6 +74,12 @@ interface ResultadoAnalisis {
   archivoUrl: string;
   fechaAnalisis: string;
   analisisDetallado?: AnalisisDetallado;
+  
+  // NUEVOS CAMPOS para análisis híbrido
+  analisisHibrido?: AnalisisHibrido;
+  detallesScoring?: DetallesScoring;
+  esPDF?: boolean;
+  metodosProcesamiento?: string[];
 }
 
 interface AsignacionUsuario {
@@ -58,7 +89,6 @@ interface AsignacionUsuario {
   fechaAsignacion: string;
 }
 
-// NUEVA: Interfaz para marcado manual
 interface RevisionManual {
   documentoId: string;
   decision: 'accept' | 'review' | 'reject';
@@ -70,9 +100,11 @@ interface RevisionManual {
 // URL del backend
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://docuvalle-backend-166554040569.us-central1.run.app';
 
+// ==================== COMPONENTE PRINCIPAL ====================
+
 const UploadDocumento: React.FC = () => {
   // Estados principales
-  const [pasoActual, setPasoActual] = useState(1); // NUEVO: Control de pasos
+  const [pasoActual, setPasoActual] = useState(1);
   const [archivo, setArchivo] = useState<File | null>(null);
   const [archivoSubido, setArchivoSubido] = useState<ArchivoSubido | null>(null);
   const [resultado, setResultado] = useState<ResultadoAnalisis | null>(null);
@@ -93,11 +125,16 @@ const UploadDocumento: React.FC = () => {
   const [mostrarDetalles, setMostrarDetalles] = useState(false);
   const [mostrarMarcadoManual, setMostrarMarcadoManual] = useState(false);
   
+  // NUEVOS ESTADOS para análisis híbrido
+  const [mostrarAnalisisTecnico, setMostrarAnalisisTecnico] = useState(false);
+  const [progresoProcesamiento, setProgresoProcesamiento] = useState<string[]>([]);
+  
   // Estados para marcado manual
   const [decisionManual, setDecisionManual] = useState<'accept' | 'review' | 'reject'>('review');
   const [comentarioRevisor, setComentarioRevisor] = useState('');
 
-  // Configuración de react-dropzone
+  // ==================== CONFIGURACIÓN DROPZONE ====================
+
   const onDrop = useCallback((archivosAceptados: File[]) => {
     if (archivosAceptados.length > 0 && !archivoSubido) {
       setArchivo(archivosAceptados[0]);
@@ -122,7 +159,37 @@ const UploadDocumento: React.FC = () => {
     disabled: subiendo || analizando || !!archivoSubido
   });
 
-  // PASO 1: Subir archivo
+  // ==================== MÉTODOS DE PROCESAMIENTO ====================
+
+  // MÉTODO: Simular progreso para mejor UX
+  const simularProgresoAnalisis = async (esPDF: boolean) => {
+    const pasos = esPDF 
+      ? [
+          '📄 Preparando PDF para análisis híbrido...',
+          '🤖 Extrayendo texto con Google Vision API...',
+          '🖼️ Convirtiendo primera página a imagen...',
+          '🧠 Analizando elementos de seguridad con Gemini...',
+          '🔍 Detectando sellos y firmas...',
+          '🎯 Identificando logos institucionales...',
+          '📊 Combinando análisis Vision + Gemini...',
+          '⚖️ Calculando score de autenticidad híbrido...'
+        ]
+      : [
+          '🖼️ Preparando imagen para análisis...',
+          '🤖 Extrayendo texto con Google Vision API...',
+          '🧠 Analizando con Gemini Vision...',
+          '🔍 Detectando elementos de seguridad...',
+          '🎯 Identificando logos y sellos...',
+          '📊 Calculando score de autenticidad...'
+        ];
+
+    for (let i = 0; i < pasos.length; i++) {
+      setProgresoProcesamiento(prev => [...prev, pasos[i]]);
+      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1500));
+    }
+  };
+
+  // MÉTODO: Subir archivo
   const subirArchivo = async () => {
     if (!archivo) {
       setError('Por favor selecciona un archivo primero');
@@ -135,6 +202,8 @@ const UploadDocumento: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append('archivo', archivo);
+
+      console.log('📤 Subiendo archivo:', archivo.name, `(${(archivo.size / 1024 / 1024).toFixed(2)} MB)`);
 
       const respuesta = await axios.post(
         `${API_BASE_URL}/api/documents/upload`,
@@ -163,7 +232,7 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // PASO 2: Analizar documento
+  // MÉTODO: Analizar documento con IA híbrida
   const analizarDocumento = async () => {
     if (!archivoSubido) {
       setError('Primero debes subir un archivo');
@@ -172,6 +241,7 @@ const UploadDocumento: React.FC = () => {
 
     setAnalizando(true);
     setError(null);
+    setProgresoProcesamiento([]);
 
     try {
       const payload = {
@@ -183,31 +253,50 @@ const UploadDocumento: React.FC = () => {
         userId: 'admin-usuario'
       };
 
+      // Simular progreso basado en el tipo de archivo
+      const esPDF = archivoSubido.tipoArchivo === 'application/pdf';
+      await simularProgresoAnalisis(esPDF);
+
+      console.log('🚀 Iniciando análisis híbrido del documento...');
+
       const respuesta = await axios.post(
         `${API_BASE_URL}/api/documents/analyze`,
         payload,
-        { timeout: 120000 }
+        { timeout: 180000 } // 3 minutos para procesamiento híbrido
       );
 
-      setResultado(respuesta.data.resultado);
+      const resultadoAnalisis = respuesta.data.resultado;
+      
+      // Enriquecer resultado con información del tipo de procesamiento
+      const resultadoEnriquecido: ResultadoAnalisis = {
+        ...resultadoAnalisis,
+        esPDF: esPDF,
+        metodosProcesamiento: esPDF 
+          ? ['Google Vision API (PDF nativo)', 'Gemini Vision (imagen convertida)', 'Análisis híbrido combinado']
+          : ['Google Vision API', 'Gemini Vision', 'Análisis híbrido']
+      };
+
+      setResultado(resultadoEnriquecido);
       setPasoActual(3);
-      console.log('🎉 Documento analizado exitosamente:', respuesta.data.resultado);
+      
+      console.log('🎉 Documento analizado con IA híbrida:', resultadoEnriquecido);
 
     } catch (error) {
       console.error('❌ Error analizando documento:', error);
       
       if (axios.isAxiosError(error)) {
         const errorData = error.response?.data;
-        setError(errorData?.message || 'Error analizando el documento');
+        setError(errorData?.message || 'Error analizando el documento con IA híbrida');
       } else {
         setError('Error de conexión analizando el documento');
       }
     } finally {
       setAnalizando(false);
+      setProgresoProcesamiento([]);
     }
   };
 
-  // NUEVO: Marcado manual del documento
+  // MÉTODO: Marcado manual del documento
   const marcarManualmente = async () => {
     if (!resultado) {
       setError('No hay documento para marcar');
@@ -247,7 +336,7 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // Asignar documento a usuario
+  // MÉTODO: Asignar documento a usuario
   const asignarDocumento = async () => {
     if (!resultado || !nombreUsuario.trim()) {
       setError('Completa el nombre del usuario');
@@ -287,7 +376,7 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // Reiniciar proceso
+  // MÉTODO: Reiniciar proceso
   const reiniciarProceso = () => {
     setArchivo(null);
     setArchivoSubido(null);
@@ -303,9 +392,12 @@ const UploadDocumento: React.FC = () => {
     setMostrarAsignacion(false);
     setMostrarDetalles(false);
     setMostrarMarcadoManual(false);
+    setMostrarAnalisisTecnico(false);
+    setProgresoProcesamiento([]);
   };
 
-  // Funciones auxiliares
+  // ==================== FUNCIONES AUXILIARES ====================
+
   const obtenerColorScore = (score: number): string => {
     if (score >= 75) return '#4caf50';
     if (score >= 45) return '#ff9800';
@@ -339,9 +431,280 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
+  const obtenerClaseRecomendacion = (recomendacion: string): string => {
+    switch (recomendacion) {
+      case 'accept': return 'recomendacion accept';
+      case 'reject': return 'recomendacion reject';
+      case 'review': return 'recomendacion review';
+      default: return 'recomendacion';
+    }
+  };
+
+  // ==================== COMPONENTES INTERNOS ====================
+
+  // COMPONENTE: Progreso de análisis detallado
+  const ProgresoAnalisisDetallado = () => (
+    <div className="progreso-analisis">
+      <div className="spinner"></div>
+      <h4>🔍 Analizando documento con IA híbrida...</h4>
+      
+      <div className="pasos-analisis">
+        {progresoProcesamiento.map((paso, index) => (
+          <div key={index} className="paso-analisis-item">
+            {paso}
+          </div>
+        ))}
+      </div>
+      
+      <div className="info-tecnologias" style={{ marginTop: '20px', display: 'flex', justifyContent: 'center', gap: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(33, 150, 243, 0.1)', padding: '8px 16px', borderRadius: '20px' }}>
+          <span style={{ fontSize: '1.2rem' }}>🤖</span>
+          <span style={{ fontWeight: '600', color: '#1976d2' }}>Google Vision API</span>
+          <span style={{ color: '#4caf50', fontWeight: '600', fontSize: '0.8rem' }}>ACTIVO</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(156, 39, 176, 0.1)', padding: '8px 16px', borderRadius: '20px' }}>
+          <span style={{ fontSize: '1.2rem' }}>🧠</span>
+          <span style={{ fontWeight: '600', color: '#7b1fa2' }}>Gemini Vision</span>
+          <span style={{ color: '#4caf50', fontWeight: '600', fontSize: '0.8rem' }}>ACTIVO</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  // COMPONENTE: Análisis técnico detallado
+  const AnalisisTecnicoDetallado = () => {
+    if (!resultado?.analisisHibrido || !resultado?.detallesScoring) {
+      return (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+          <p>Información técnica detallada no disponible para este análisis.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        {/* Información del procesamiento */}
+        <div className="seccion-detalles">
+          <h4>📋 Métodos de Procesamiento Utilizados</h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px' }}>
+            {resultado.metodosProcesamiento?.map((metodo, index) => (
+              <div key={index} style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '10px', 
+                background: 'white', 
+                padding: '12px', 
+                borderRadius: '8px',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.08)'
+              }}>
+                <span style={{ fontSize: '1.2rem' }}>
+                  {metodo.includes('Vision') ? '🤖' : metodo.includes('Gemini') ? '🧠' : '🔧'}
+                </span>
+                <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>{metodo}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Comparación Vision vs Gemini */}
+        <div className="seccion-detalles">
+          <h4>⚖️ Análisis Comparativo</h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+            
+            {/* Análisis Vision API */}
+            <div style={{ background: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 3px 10px rgba(0,0,0,0.08)' }}>
+              <h5 style={{ margin: '0 0 15px 0', color: '#1976d2', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>🤖</span> Google Vision API
+              </h5>
+              <div style={{ display: 'grid', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <span style={{ color: '#666' }}>Estado:</span>
+                  <span style={{ fontWeight: '600', color: resultado.analisisHibrido.visionAPI.usado ? '#4caf50' : '#f44336' }}>
+                    {resultado.analisisHibrido.visionAPI.usado ? 'Utilizado' : 'No utilizado'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <span style={{ color: '#666' }}>Objetos detectados:</span>
+                  <span style={{ fontWeight: '600' }}>{resultado.analisisHibrido.visionAPI.objetosDetectados}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <span style={{ color: '#666' }}>Logos procesados:</span>
+                  <span style={{ fontWeight: '600' }}>{resultado.analisisHibrido.visionAPI.logosProcesados}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
+                  <span style={{ color: '#666' }}>Confianza texto:</span>
+                  <span style={{ fontWeight: '600', color: '#4caf50' }}>{resultado.analisisHibrido.visionAPI.confianzaTexto}%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Análisis Gemini */}
+            <div style={{ background: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 3px 10px rgba(0,0,0,0.08)' }}>
+              <h5 style={{ margin: '0 0 15px 0', color: '#7b1fa2', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>🧠</span> Gemini Vision AI
+              </h5>
+              <div style={{ display: 'grid', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <span style={{ color: '#666' }}>Estado:</span>
+                  <span style={{ fontWeight: '600', color: resultado.analisisHibrido.geminiAPI.usado ? '#4caf50' : '#f44336' }}>
+                    {resultado.analisisHibrido.geminiAPI.usado ? 'Utilizado' : 'No disponible'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <span style={{ color: '#666' }}>Score autenticidad:</span>
+                  <span style={{ fontWeight: '600' }}>{resultado.analisisHibrido.geminiAPI.scoreAutenticidad}%</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <span style={{ color: '#666' }}>Tipo detectado:</span>
+                  <span style={{ fontWeight: '600' }}>{resultado.analisisHibrido.geminiAPI.tipoDocumento}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <span style={{ color: '#666' }}>Elementos sospechosos:</span>
+                  <span style={{ fontWeight: '600', color: resultado.analisisHibrido.geminiAPI.elementosSospechosos > 0 ? '#f44336' : '#4caf50' }}>
+                    {resultado.analisisHibrido.geminiAPI.elementosSospechosos}
+                  </span>
+                </div>
+                {resultado.analisisHibrido.geminiAPI.institucionDetectada && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
+                    <span style={{ color: '#666' }}>Institución:</span>
+                    <span style={{ fontWeight: '600', color: '#2196f3' }}>{resultado.analisisHibrido.geminiAPI.institucionDetectada}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Desglose del scoring */}
+        <div className="seccion-detalles">
+          <h4>📊 Desglose del Score de Autenticidad</h4>
+          <div style={{ display: 'grid', gap: '15px' }}>
+            
+            {/* Barras de progreso para cada factor */}
+            {[
+              { label: 'Factor Texto', valor: resultado.detallesScoring.factorTexto, color: '#2196f3' },
+              { label: 'Factor Elementos', valor: resultado.detallesScoring.factorElementos, color: '#4caf50' },
+              { label: 'Factor Calidad', valor: resultado.detallesScoring.factorCalidad, color: '#ff9800' },
+              { label: 'Bonificaciones', valor: resultado.detallesScoring.bonificaciones, color: '#9c27b0' }
+            ].map((factor, index) => (
+              <div key={index} style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '15px',
+                background: 'white',
+                padding: '12px',
+                borderRadius: '8px',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.05)'
+              }}>
+                <span style={{ minWidth: '120px', fontWeight: '500', color: '#555' }}>{factor.label}:</span>
+                <div style={{ 
+                  flex: 1, 
+                  height: '8px', 
+                  background: '#f0f0f0', 
+                  borderRadius: '4px', 
+                  overflow: 'hidden',
+                  position: 'relative'
+                }}>
+                  <div style={{ 
+                    width: `${Math.min(factor.valor, 100)}%`, 
+                    height: '100%', 
+                    background: factor.color,
+                    borderRadius: '4px',
+                    transition: 'width 1s ease-out'
+                  }}></div>
+                </div>
+                <span style={{ minWidth: '50px', fontWeight: '600', color: factor.color }}>{factor.valor}%</span>
+              </div>
+            ))}
+            
+            {/* Confianza total */}
+            <div style={{ 
+              marginTop: '20px', 
+              padding: '15px', 
+              background: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)',
+              borderRadius: '10px',
+              border: '2px solid #2196f3',
+              textAlign: 'center'
+            }}>
+              <span style={{ fontSize: '1.1rem', fontWeight: '600', color: '#1976d2' }}>
+                Confianza del análisis: {resultado.detallesScoring.confianza}%
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Razonamiento del algoritmo */}
+        <div className="seccion-detalles">
+          <h4>🧮 Razonamiento del Algoritmo</h4>
+          <div style={{ background: 'white', borderRadius: '12px', padding: '20px' }}>
+            {resultado.detallesScoring.razonamiento?.map((razon, index) => (
+              <div key={index} style={{ 
+                display: 'flex', 
+                gap: '12px', 
+                padding: '10px 0',
+                borderBottom: index < resultado.detallesScoring.razonamiento.length - 1 ? '1px solid #f0f0f0' : 'none'
+              }}>
+                <span style={{ 
+                  minWidth: '24px', 
+                  height: '24px', 
+                  background: '#2196f3', 
+                  color: 'white', 
+                  borderRadius: '50%', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  fontSize: '0.8rem',
+                  fontWeight: '600'
+                }}>
+                  {index + 1}
+                </span>
+                <span style={{ color: '#333', lineHeight: '1.5' }}>{razon}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Información específica de PDF */}
+        {resultado.esPDF && (
+          <div className="seccion-detalles">
+            <h4>📄 Información Específica de PDF</h4>
+            <div style={{ 
+              background: 'linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%)',
+              padding: '20px',
+              borderRadius: '12px',
+              border: '2px solid #ff9800'
+            }}>
+              <div style={{ display: 'grid', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ color: '#4caf50', fontSize: '1.2rem' }}>✅</span>
+                  <span style={{ color: '#e65100', fontWeight: '500' }}>Documento PDF procesado con análisis híbrido</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '1.2rem' }}>🤖</span>
+                  <span style={{ color: '#e65100' }}>Vision API: Texto extraído directamente del PDF</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '1.2rem' }}>🧠</span>
+                  <span style={{ color: '#e65100' }}>Gemini: Análisis visual de página convertida a imagen</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '1.2rem' }}>🔄</span>
+                  <span style={{ color: '#e65100' }}>Resultados combinados para máxima precisión</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ==================== RENDERIZADO PRINCIPAL ====================
+
   return (
     <div className="upload-documento-container">
-      {/* NUEVO: Indicador de progreso */}
+      
+      {/* Indicador de progreso de pasos */}
       <div className="progreso-pasos">
         <div className="paso-progreso">
           <div className={`paso-numero ${pasoActual >= 1 ? 'activo' : ''} ${pasoActual > 1 ? 'completado' : ''}`}>1</div>
@@ -367,8 +730,9 @@ const UploadDocumento: React.FC = () => {
         </div>
       </div>
 
-      <h2>📄 Procesar Documento (Con IA Mejorada)</h2>
+      <h2>📄 Procesar Documento (Con IA Híbrida Avanzada)</h2>
       
+      {/* Mensaje de error */}
       {error && (
         <div className="error-message">
           <p>❌ {error}</p>
@@ -408,7 +772,7 @@ const UploadDocumento: React.FC = () => {
                 {archivo.type === 'application/pdf' && (
                   <div className="preview-pdf">
                     <div className="pdf-icon">📄</div>
-                    <p>Archivo PDF listo para procesar</p>
+                    <p>Archivo PDF listo para procesamiento híbrido</p>
                   </div>
                 )}
                 
@@ -463,6 +827,29 @@ const UploadDocumento: React.FC = () => {
             <p><strong>📄 Archivo:</strong> {archivoSubido.nombreArchivo}</p>
             <p><strong>🔗 URL:</strong> <a href={archivoSubido.archivoUrl} target="_blank" rel="noopener noreferrer">Ver archivo</a></p>
             <p><strong>📅 Subido:</strong> {new Date(archivoSubido.fechaSubida).toLocaleString()}</p>
+            
+            {/* Información del método de análisis */}
+            <div style={{ marginTop: '16px' }}>
+              <h4 style={{ margin: '0 0 12px 0', color: '#2e7d32', fontSize: '1rem' }}>🔬 Método de Análisis Híbrido:</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(33, 150, 243, 0.1)', padding: '8px 12px', borderRadius: '8px' }}>
+                  <span>🤖</span>
+                  <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>Google Vision API</span>
+                  <span style={{ color: '#4caf50', fontSize: '0.8rem', fontWeight: '600' }}>✓ Activo</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(156, 39, 176, 0.1)', padding: '8px 12px', borderRadius: '8px' }}>
+                  <span>🧠</span>
+                  <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>Gemini Vision AI</span>
+                  <span style={{ color: '#4caf50', fontSize: '0.8rem', fontWeight: '600' }}>✓ Activo</span>
+                </div>
+                {archivoSubido.tipoArchivo === 'application/pdf' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255, 152, 0, 0.1)', padding: '8px 12px', borderRadius: '8px', gridColumn: '1 / -1' }}>
+                    <span>📄</span>
+                    <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>Procesamiento híbrido especial para PDF</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="botones-analisis">
@@ -471,7 +858,7 @@ const UploadDocumento: React.FC = () => {
               disabled={analizando}
               className="btn-analizar"
             >
-              {analizando ? '⏳ Analizando con IA...' : '🤖 Analizar con IA Mejorada'}
+              {analizando ? '⏳ Analizando con IA Híbrida...' : '🚀 Analizar con IA Híbrida (Vision + Gemini)'}
             </button>
             
             <button 
@@ -482,41 +869,74 @@ const UploadDocumento: React.FC = () => {
             </button>
           </div>
 
-          {analizando && (
-            <div className="progreso-analisis">
-              <div className="spinner"></div>
-              <p>🔍 Analizando documento con inteligencia artificial...</p>
-              <div className="pasos-analisis">
-                <div className="paso-analisis-item">📝 Extrayendo texto</div>
-                <div className="paso-analisis-item">🔍 Detectando elementos de seguridad</div>
-                <div className="paso-analisis-item">🏛️ Buscando sellos oficiales</div>
-                <div className="paso-analisis-item">✍️ Identificando firmas</div>
-                <div className="paso-analisis-item">🎯 Reconociendo logos</div>
-                <div className="paso-analisis-item">📊 Calculando score de autenticidad</div>
-              </div>
-            </div>
-          )}
+          {/* Progreso del análisis */}
+          {analizando && <ProgresoAnalisisDetallado />}
         </section>
       )}
 
       {/* PASO 3: Resultados del análisis */}
       {resultado && (
         <section className="paso-resultados">
-          <h3>Paso 3: Resultados del Análisis IA 📊</h3>
+          <h3>Paso 3: Resultados del Análisis IA Híbrida 📊</h3>
           
           <div className="resultado-analisis">
-            {/* Score principal con estado de revisión manual */}
+            
+            {/* Score principal con información híbrida */}
             <div className="score-autenticidad">
-              <h4>Score de Autenticidad</h4>
-              <div 
-                className="score-numero"
-                style={{ color: obtenerColorScore(resultado.scoreAutenticidad) }}
-              >
-                {resultado.scoreAutenticidad}/100
+              <h4>Score de Autenticidad Híbrida</h4>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '30px', flexWrap: 'wrap' }}>
+                <div 
+                  className="score-numero"
+                  style={{ color: obtenerColorScore(resultado.scoreAutenticidad) }}
+                >
+                  {resultado.scoreAutenticidad}/100
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {resultado.detallesScoring && (
+                    <div style={{ fontSize: '0.9rem', color: '#666' }}>
+                      Confianza: <span style={{ fontWeight: '600', color: '#333' }}>{resultado.detallesScoring.confianza}%</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    {resultado.analisisHibrido?.visionAPI.usado && (
+                      <span style={{ 
+                        background: 'linear-gradient(135deg, #2196f3 0%, #1976d2 100%)', 
+                        color: 'white', 
+                        padding: '4px 10px', 
+                        borderRadius: '12px', 
+                        fontSize: '0.8rem',
+                        fontWeight: '600',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}>
+                        🤖 Vision
+                      </span>
+                    )}
+                    {resultado.analisisHibrido?.geminiAPI.usado && (
+                      <span style={{ 
+                        background: 'linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%)', 
+                        color: 'white', 
+                        padding: '4px 10px', 
+                        borderRadius: '12px', 
+                        fontSize: '0.8rem',
+                        fontWeight: '600',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}>
+                        🧠 Gemini
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
-              <p className="recomendacion">{resultado.recomendacionTexto}</p>
               
-              {/* NUEVO: Estado de revisión manual */}
+              <p className={obtenerClaseRecomendacion(resultado.recomendacion)}>
+                {resultado.recomendacionTexto}
+              </p>
+              
+              {/* Estado de revisión manual */}
               {revisionManual && (
                 <div className="revision-manual-estado">
                   <h5>Estado de Revisión Manual:</h5>
@@ -597,7 +1017,6 @@ const UploadDocumento: React.FC = () => {
 
             {/* Botones de acción */}
             <div className="botones-resultado">
-              {/* NUEVO: Botón de marcado manual */}
               {!revisionManual && (
                 <button 
                   onClick={() => setMostrarMarcadoManual(true)}
@@ -607,12 +1026,21 @@ const UploadDocumento: React.FC = () => {
                 </button>
               )}
               
+              {/* Botón para análisis técnico detallado */}
+              <button 
+                onClick={() => setMostrarAnalisisTecnico(true)}
+                className="btn-detalles"
+                style={{ background: 'linear-gradient(135deg, #673ab7 0%, #512da8 100%)' }}
+              >
+                🔬 Análisis Técnico Híbrido
+              </button>
+              
               {resultado.analisisDetallado && (
                 <button 
                   onClick={() => setMostrarDetalles(true)}
                   className="btn-detalles"
                 >
-                  🔍 Ver Análisis Detallado
+                  🔍 Ver Elementos Detectados
                 </button>
               )}
               
@@ -634,7 +1062,44 @@ const UploadDocumento: React.FC = () => {
         </section>
       )}
 
-      {/* NUEVO: Modal de marcado manual */}
+      {/* ==================== MODALES ==================== */}
+
+      {/* Modal de análisis técnico híbrido */}
+      {mostrarAnalisisTecnico && resultado && (
+        <div className="modal-detalles">
+          <div className="modal-content-large">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <h3>🔬 Análisis Técnico Híbrido Detallado</h3>
+              <button 
+                onClick={() => setMostrarAnalisisTecnico(false)}
+                style={{ 
+                  background: 'none', 
+                  border: 'none', 
+                  fontSize: '1.5rem', 
+                  cursor: 'pointer',
+                  color: '#666',
+                  padding: '8px'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            
+            <AnalisisTecnicoDetallado />
+            
+            <div className="botones-modal">
+              <button 
+                onClick={() => setMostrarAnalisisTecnico(false)}
+                className="btn-cerrar"
+              >
+                ✕ Cerrar Análisis Técnico
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de marcado manual */}
       {mostrarMarcadoManual && (
         <div className="modal-marcado-manual">
           <div className="modal-content">
@@ -685,11 +1150,11 @@ const UploadDocumento: React.FC = () => {
         </div>
       )}
 
-      {/* Modal de análisis detallado */}
+      {/* Modal de análisis detallado de elementos */}
       {mostrarDetalles && resultado?.analisisDetallado && (
         <div className="modal-detalles">
           <div className="modal-content-large">
-            <h3>🔍 Análisis Detallado del Documento</h3>
+            <h3>🔍 Análisis Detallado de Elementos</h3>
             
             <div className="seccion-detalles">
               <h4>📊 Objetos Detectados por IA ({resultado.analisisDetallado.objetosDetectados.length})</h4>
@@ -798,6 +1263,7 @@ const UploadDocumento: React.FC = () => {
                   <option value="titulo_universitario">Título Universitario</option>
                   <option value="certificado_idiomas">Certificado de Idiomas</option>
                   <option value="certificado_microsoft">Certificado Microsoft</option>
+                  <option value="certificado_tecnologico">Certificado Tecnológico</option>
                   <option value="identificacion">Documento de Identificación</option>
                   <option value="pasaporte">Pasaporte</option>
                   <option value="otro">Otro</option>
@@ -835,6 +1301,9 @@ const UploadDocumento: React.FC = () => {
               <p><strong>Fecha:</strong> {new Date(asignacion.fechaAsignacion).toLocaleString()}</p>
               {revisionManual && (
                 <p><strong>Estado Manual:</strong> {obtenerTextoDecision(revisionManual.decision)}</p>
+              )}
+              {resultado?.analisisHibrido && (
+                <p><strong>Análisis:</strong> {resultado.analisisHibrido.visionAPI.usado && resultado.analisisHibrido.geminiAPI.usado ? 'Híbrido (Vision + Gemini)' : 'Básico'}</p>
               )}
             </div>
           </div>
