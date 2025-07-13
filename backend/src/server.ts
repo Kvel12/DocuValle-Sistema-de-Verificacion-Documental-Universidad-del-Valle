@@ -268,17 +268,40 @@ app.post('/api/documents/analyze', async (req, res) => {
     }
 
     console.log(`📊 Analizando documento: ${documentoId}`);
+    console.log(`🔗 URL del archivo: ${archivoUrl}`);
 
     const bucket = storage.bucket('apt-cubist-368817.firebasestorage.app');
-    const fileName = archivoUrl.split('/').pop();
-    const file = bucket.file(fileName);
+    
+    // CORRECCIÓN: Extraer la ruta completa del archivo dentro del bucket
+    const bucketName = 'apt-cubist-368817.firebasestorage.app';
+    const baseUrl = `https://storage.googleapis.com/${bucketName}/`;
+    
+    if (!archivoUrl.startsWith(baseUrl)) {
+      return res.status(400).json({
+        success: false,
+        message: 'URL de archivo inválida',
+        error: 'INVALID_FILE_URL'
+      });
+    }
+    
+    // Extraemos la ruta completa dentro del bucket (incluye carpetas)
+    const filePath = archivoUrl.replace(baseUrl, '');
+    console.log(`📂 Ruta del archivo en bucket: ${filePath}`);
+    
+    const file = bucket.file(filePath);
 
     const [exists] = await file.exists();
     if (!exists) {
+      console.error(`❌ Archivo no encontrado en: ${filePath}`);
       return res.status(404).json({
         success: false,
         message: 'El archivo no se encontró en Cloud Storage',
-        error: 'FILE_NOT_FOUND'
+        error: 'FILE_NOT_FOUND',
+        details: {
+          bucketName,
+          filePath,
+          originalUrl: archivoUrl
+        }
       });
     }
 
