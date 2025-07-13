@@ -46,7 +46,8 @@ steps:
       '--min-instances', '0',
       '--max-instances', '10',
       '--timeout', '300',
-      '--cpu-boost'
+      '--cpu-boost',
+      '--set-env-vars', 'GEMINI_API_KEY=${_GEMINI_API_KEY},PROJECT_ID=$PROJECT_ID'
     ]
     id: 'deploy-backend'
     waitFor: ['push-docker-image']
@@ -130,3 +131,4 @@ timeout: '1800s'  # Aumentamos el timeout a 30 minutos
 substitutions:
   _SERVICE_NAME: 'docuvalle-backend'
   _REGION: 'us-central1'
+  _GEMINI_API_KEY: 'AIzaSyCZTmjN7HhG-sV42CnPoCh6CeAHoC_ltw4'
