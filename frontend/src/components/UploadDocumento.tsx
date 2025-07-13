@@ -41,7 +41,7 @@ interface AsignacionUsuario {
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://docuvalle-backend-166554040569.us-central1.run.app';
 
 const UploadDocumento: React.FC = () => {
-  // Estados para el flujo de HU004
+  // Estados para el flujo
   const [archivo, setArchivo] = useState<File | null>(null);
   const [archivoSubido, setArchivoSubido] = useState<ArchivoSubido | null>(null);
   const [resultado, setResultado] = useState<ResultadoAnalisis | null>(null);
@@ -53,7 +53,7 @@ const UploadDocumento: React.FC = () => {
   const [asignando, setAsignando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Estados para la asignación de usuario (HU006)
+  // Estados para la asignación de usuario
   const [nombreUsuario, setNombreUsuario] = useState('');
   const [tipoDocumento, setTipoDocumento] = useState('');
   const [mostrarAsignacion, setMostrarAsignacion] = useState(false);
