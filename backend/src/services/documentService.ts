@@ -1,11 +1,8 @@
-// Servicio especializado en manejo de documentos y almacenamiento
-// Versión corregida completa con soporte para marcado manual y corrección de errores
-
 import { db, storage } from '../config/firebase';
-import { FieldValue } from 'firebase-admin/firestore'; // CORRECCIÓN: Import correcto
+import { FieldValue } from 'firebase-admin/firestore';
 import { v4 as uuidv4 } from 'uuid';
 
-// Interfaz expandida para documentos procesados
+// Interfaz expandida para documentos procesados con soporte Gemini
 export interface DocumentoProcessado {
   id: string;
   userId: string;
@@ -17,7 +14,7 @@ export interface DocumentoProcessado {
   fechaProcesamiento: Date;
   estado: 'procesando' | 'completado' | 'error';
   
-  // Campos para el análisis de autenticidad
+  // Campos para el análisis de autenticidad mejorado
   scoreAutenticidad?: number;
   recomendacion?: 'accept' | 'review' | 'reject';
   elementosSeguridad?: {
@@ -26,12 +23,22 @@ export interface DocumentoProcessado {
     logos: boolean;
   };
   
-  // NUEVO: Campos para revisión manual
+  // Campos para revisión manual
   recomendacionManual?: 'accept' | 'review' | 'reject';
   comentarioRevisor?: string;
   revisorId?: string;
   fechaRevisionManual?: Date;
   estadoRevision?: 'pendiente' | 'revisado_manualmente' | 'sin_revision';
+  
+  // NUEVO: Análisis Gemini
+  analisisGemini?: {
+    habilitado: boolean;
+    tipoDocumento: string;
+    scoreAutenticidad: number;
+    elementosDetectados: string[];
+    consistenciaFormato: number;
+    elementosSospechosos: string[];
+  };
   
   // Metadatos expandidos
   metadatos?: {
@@ -46,6 +53,13 @@ export interface DocumentoProcessado {
     resolucionImagen?: 'alta' | 'media' | 'baja';
     estructuraDocumento?: 'formal' | 'informal' | 'dudosa';
     confianzaPromedio?: number;
+    
+    // NUEVO: Metadatos específicos de Gemini
+    geminiAnalisisCompletado?: boolean;
+    tiempoAnalisisGemini?: number;
+    versionGemini?: string;
+    fallbackUsado?: boolean;
+    razonFallback?: string;
   };
 }
 
@@ -111,7 +125,8 @@ export class DocumentService {
             fileSize: file.size.toString(),
             fileExtension: extension,
             documentType: this.determinarTipoDocumento(file.originalname),
-            version: '2.1'
+            version: '3.0',  // Incrementamos versión para Gemini
+            geminiCompatible: this.esCompatibleConGemini(file.mimetype).toString()
           }
         },
         public: true,
@@ -171,9 +186,9 @@ export class DocumentService {
   }
 
   /**
-   * Guarda los resultados del procesamiento con soporte para revisión manual
+   * MEJORADO: Guarda los resultados del procesamiento con soporte completo para Gemini
    */
-  async saveProcessingResult(documento: DocumentoProcessado): Promise<string> {
+  async saveProcessingResult(documento: DocumentoProcessado, analisisGemini?: any): Promise<string> {
     try {
       console.log(`💾 [DocumentService] Guardando resultado: ${documento.id}`);
 
@@ -181,7 +196,12 @@ export class DocumentService {
         throw new Error('ID de documento y userId son obligatorios');
       }
 
-      const metadatos = this.calcularMetadatosAvanzados(documento.textoExtraido, documento.metadatos);
+      // Calcular metadatos avanzados incluyendo información de Gemini
+      const metadatos = this.calcularMetadatosAvanzados(
+        documento.textoExtraido, 
+        documento.metadatos, 
+        analisisGemini
+      );
 
       const documentoFirestore = {
         id: documento.id,
@@ -202,45 +222,67 @@ export class DocumentService {
           logos: false
         },
         
-        // NUEVO: Campos de revisión manual (iniciales)
+        // Campos de revisión manual (iniciales)
         recomendacionManual: null,
         comentarioRevisor: '',
         revisorId: null,
         fechaRevisionManual: null,
         estadoRevision: 'pendiente',
         
+        // NUEVO: Análisis Gemini estructurado
+        analisisGemini: documento.analisisGemini || {
+          habilitado: false,
+          tipoDocumento: 'no_determinado',
+          scoreAutenticidad: 0,
+          elementosDetectados: [],
+          consistenciaFormato: 0,
+          elementosSospechosos: []
+        },
+        
         metadatos: metadatos,
         
+        // Preview del texto y flags
         textoPreview: documento.textoExtraido.substring(0, 500),
         textoCompleto: documento.textoExtraido.length > 500,
         
+        // Análisis de contenido mejorado
         tipoDocumentoDetectado: this.detectarTipoDocumentoPorTexto(documento.textoExtraido),
         palabrasClave: this.extraerPalabrasClave(documento.textoExtraido),
         
-        versionAnalisis: '2.1',
+        // Scoring combinado (Vision + Gemini)
+        scoreVisionAPI: documento.metadatos?.confianzaPromedio || 0,
+        scoreGemini: documento.analisisGemini?.scoreAutenticidad || 0,
+        
+        // Metadatos de versión y compatibilidad
+        versionAnalisis: '3.0',
+        compatibleGemini: this.esCompatibleConGemini(documento.tipoArchivo),
         fechaUltimaActualizacion: new Date()
       };
 
       await db.collection('documentos').doc(documento.id).set(documentoFirestore);
 
+      // Guardar texto completo si es necesario
       if (documento.textoExtraido.length > 500) {
         await db.collection('textos-completos').doc(documento.id).set({
           documentoId: documento.id,
           textoCompleto: documento.textoExtraido,
           fechaGuardado: new Date(),
-          checksum: this.calcularChecksum(documento.textoExtraido)
+          checksum: this.calcularChecksum(documento.textoExtraido),
+          procesadoConGemini: documento.analisisGemini?.habilitado || false
         });
       }
 
-      // CORRECCIÓN: Actualizar estadísticas con manejo de errores
+      // Actualizar estadísticas con información de Gemini
       try {
         await this.actualizarEstadisticas(documento);
       } catch (statsError) {
         console.warn('⚠️ No se pudieron actualizar estadísticas globales:', statsError);
-        // No es crítico, continuamos
       }
 
       console.log(`✅ Documento guardado exitosamente en Firestore: ${documento.id}`);
+      console.log(`   - Gemini habilitado: ${documento.analisisGemini?.habilitado || false}`);
+      console.log(`   - Score final: ${documento.scoreAutenticidad}`);
+      
       return documento.id;
 
     } catch (error) {
@@ -261,7 +303,7 @@ export class DocumentService {
   }
 
   /**
-   * NUEVA FUNCIÓN: Actualizar estado manual de un documento
+   * Actualizar estado manual de un documento
    */
   async actualizarRevisionManual(documentoId: string, datos: {
     recomendacionManual: 'accept' | 'review' | 'reject';
@@ -276,7 +318,8 @@ export class DocumentService {
         comentarioRevisor: datos.comentarioRevisor || '',
         revisorId: datos.revisorId || 'revisor-manual',
         fechaRevisionManual: new Date(),
-        estadoRevision: 'revisado_manualmente'
+        estadoRevision: 'revisado_manualmente',
+        fechaUltimaActualizacion: new Date()
       });
       
       console.log(`✅ Revisión manual actualizada para documento: ${documentoId}`);
@@ -287,7 +330,7 @@ export class DocumentService {
   }
 
   /**
-   * Obtiene documentos de usuario con soporte para filtros de revisión
+   * MEJORADO: Obtiene documentos con información de Gemini
    */
   async getUserDocuments(userId: string, filtros?: {
     limite?: number;
@@ -296,6 +339,7 @@ export class DocumentService {
     estadoRevision?: string;
     fechaDesde?: Date;
     fechaHasta?: Date;
+    soloGemini?: boolean;  // NUEVO: Filtrar solo documentos procesados con Gemini
   }): Promise<DocumentoProcessado[]> {
     try {
       console.log(`🔍 [DocumentService] Buscando documentos del usuario: ${userId}`);
@@ -318,6 +362,10 @@ export class DocumentService {
 
       if (filtros?.estadoRevision) {
         consulta = consulta.where('estadoRevision', '==', filtros.estadoRevision);
+      }
+
+      if (filtros?.soloGemini) {
+        consulta = consulta.where('analisisGemini.habilitado', '==', true);
       }
 
       if (filtros?.fechaDesde) {
@@ -350,17 +398,24 @@ export class DocumentService {
           scoreAutenticidad: data.scoreAutenticidad,
           recomendacion: data.recomendacion,
           elementosSeguridad: data.elementosSeguridad,
-          // NUEVO: Campos de revisión manual
+          
+          // Campos de revisión manual
           recomendacionManual: data.recomendacionManual,
           comentarioRevisor: data.comentarioRevisor,
           revisorId: data.revisorId,
           fechaRevisionManual: data.fechaRevisionManual ? data.fechaRevisionManual.toDate() : undefined,
           estadoRevision: data.estadoRevision,
+          
+          // NUEVO: Análisis Gemini
+          analisisGemini: data.analisisGemini,
+          
           metadatos: data.metadatos
         });
       });
 
       console.log(`✅ Encontrados ${documentos.length} documentos para el usuario ${userId}`);
+      console.log(`   - Con análisis Gemini: ${documentos.filter(d => d.analisisGemini?.habilitado).length}`);
+      
       return documentos;
 
     } catch (error) {
@@ -370,7 +425,7 @@ export class DocumentService {
   }
 
   /**
-   * Obtiene estadísticas con información de revisión manual
+   * MEJORADO: Estadísticas con información de Gemini
    */
   async obtenerEstadisticasDashboard(userId?: string): Promise<{
     totalDocumentos: number;
@@ -380,9 +435,16 @@ export class DocumentService {
     distribucionRevisionManual: { [key: string]: number };
     tiposDocumentosMasComunes: { [key: string]: number };
     tendenciaUltimos30Dias: Array<{ fecha: string; cantidad: number }>;
+    // NUEVO: Estadísticas de Gemini
+    estadisticasGemini: {
+      documentosConGemini: number;
+      scorePromedioGemini: number;
+      tiposDocumentosGemini: { [key: string]: number };
+      mejoraPorcentajeDeteccion: number;
+    };
   }> {
     try {
-      console.log('📊 Calculando estadísticas del dashboard...');
+      console.log('📊 Calculando estadísticas del dashboard con información Gemini...');
 
       let consultaBase = db.collection('documentos');
       
@@ -402,9 +464,13 @@ export class DocumentService {
 
       let sumaScores = 0;
       let contadorScores = 0;
+      let sumaScoresGemini = 0;
+      let contadorGemini = 0;
+      
       const distribucionRecomendaciones: { [key: string]: number } = {};
-      const distribucionRevisionManual: { [key: string]: number } = {}; // NUEVO
+      const distribucionRevisionManual: { [key: string]: number } = {};
       const tiposDocumentosMasComunes: { [key: string]: number } = {};
+      const tiposDocumentosGemini: { [key: string]: number } = {};
 
       snapshotTotal.forEach((doc: any) => {
         const data = doc.data();
@@ -414,10 +480,20 @@ export class DocumentService {
           contadorScores++;
         }
 
+        // Estadísticas Gemini
+        if (data.analisisGemini?.habilitado) {
+          contadorGemini++;
+          if (data.analisisGemini.scoreAutenticidad) {
+            sumaScoresGemini += data.analisisGemini.scoreAutenticidad;
+          }
+          
+          const tipoGemini = data.analisisGemini.tipoDocumento || 'no_determinado';
+          tiposDocumentosGemini[tipoGemini] = (tiposDocumentosGemini[tipoGemini] || 0) + 1;
+        }
+
         const recomendacion = data.recomendacion || 'sin_determinar';
         distribucionRecomendaciones[recomendacion] = (distribucionRecomendaciones[recomendacion] || 0) + 1;
 
-        // NUEVO: Distribución de revisión manual
         const estadoRevision = data.estadoRevision || 'pendiente';
         distribucionRevisionManual[estadoRevision] = (distribucionRevisionManual[estadoRevision] || 0) + 1;
 
@@ -426,6 +502,12 @@ export class DocumentService {
       });
 
       const scorePromedio = contadorScores > 0 ? Math.round((sumaScores / contadorScores) * 100) / 100 : 0;
+      const scorePromedioGemini = contadorGemini > 0 ? Math.round((sumaScoresGemini / contadorGemini) * 100) / 100 : 0;
+
+      // Calcular mejora porcentual por Gemini
+      const scoreVisionSolo = contadorScores > 0 ? sumaScores / contadorScores : 0;
+      const mejoraPorcentajeDeteccion = scoreVisionSolo > 0 ? 
+        ((scorePromedioGemini - scoreVisionSolo) / scoreVisionSolo) * 100 : 0;
 
       const hace30Dias = new Date();
       hace30Dias.setDate(hace30Dias.getDate() - 30);
@@ -442,9 +524,16 @@ export class DocumentService {
         documentosHoy,
         scorePromedio,
         distribucionRecomendaciones,
-        distribucionRevisionManual, // NUEVO
+        distribucionRevisionManual,
         tiposDocumentosMasComunes,
-        tendenciaUltimos30Dias
+        tendenciaUltimos30Dias,
+        // NUEVO: Estadísticas específicas de Gemini
+        estadisticasGemini: {
+          documentosConGemini: contadorGemini,
+          scorePromedioGemini: scorePromedioGemini,
+          tiposDocumentosGemini: tiposDocumentosGemini,
+          mejoraPorcentajeDeteccion: Math.round(mejoraPorcentajeDeteccion * 100) / 100
+        }
       };
 
     } catch (error) {
@@ -478,7 +567,8 @@ export class DocumentService {
           bucketName: this.bucketName,
           location: metadata.location,
           storageClass: metadata.storageClass,
-          created: metadata.timeCreated
+          created: metadata.timeCreated,
+          geminiCompatibilityEnabled: true
         }
       };
       
@@ -527,7 +617,6 @@ export class DocumentService {
    */
   async eliminarDocumento(documentoId: string, userId: string): Promise<void> {
     try {
-      // Verificamos que el documento pertenezca al usuario
       const doc = await db.collection('documentos').doc(documentoId).get();
       
       if (!doc.exists) {
@@ -543,7 +632,6 @@ export class DocumentService {
       const archivoUrl = data?.archivoUrl;
       if (archivoUrl) {
         try {
-          // Extraemos el nombre del archivo de la URL
           const nombreArchivo = archivoUrl.split(`${this.bucketName}/`)[1];
           if (nombreArchivo) {
             const archivo = this.bucket.file(nombreArchivo);
@@ -552,14 +640,12 @@ export class DocumentService {
           }
         } catch (storageError) {
           console.warn(`⚠️ No se pudo eliminar archivo de Storage: ${storageError}`);
-          // Continuamos con la eliminación en Firestore aunque falle el Storage
         }
       }
 
       // Eliminamos los registros de Firestore
       await db.collection('documentos').doc(documentoId).delete();
       
-      // Intentamos eliminar texto completo si existe
       try {
         await db.collection('textos-completos').doc(documentoId).delete();
       } catch (textError) {
@@ -575,14 +661,29 @@ export class DocumentService {
   }
 
   /**
-   * FUNCIONES AUXILIARES PRIVADAS
+   * FUNCIONES AUXILIARES PRIVADAS MEJORADAS
    */
 
-  private calcularMetadatosAvanzados(texto: string, metadatosExistentes?: any) {
+  /**
+   * NUEVO: Verifica si un tipo de archivo es compatible con Gemini
+   */
+  private esCompatibleConGemini(mimeType: string): boolean {
+    const tiposCompatibles = [
+      'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 
+      'image/bmp', 'image/webp', 'image/tiff'
+      // Nota: PDFs no son compatibles directamente con Gemini Vision
+    ];
+    return tiposCompatibles.includes(mimeType);
+  }
+
+  /**
+   * MEJORADO: Calcula metadatos incluyendo información de Gemini
+   */
+  private calcularMetadatosAvanzados(texto: string, metadatosExistentes?: any, analisisGemini?: any) {
     const palabras = texto.split(/\s+/).filter(palabra => palabra.length > 0);
     const lineas = texto.split('\n').filter(linea => linea.trim().length > 0);
     
-    return {
+    const metadatosBase = {
       numeroCaracteres: texto.length,
       numeroPalabras: palabras.length,
       numeroLineas: lineas.length,
@@ -596,8 +697,17 @@ export class DocumentService {
       firmasProcesadas: metadatosExistentes?.firmasProcesadas || [],
       resolucionImagen: metadatosExistentes?.resolucionImagen || 'media',
       estructuraDocumento: metadatosExistentes?.estructuraDocumento || 'informal',
-      confianzaPromedio: metadatosExistentes?.confianzaPromedio || 0
+      confianzaPromedio: metadatosExistentes?.confianzaPromedio || 0,
+      
+      // NUEVO: Metadatos específicos de Gemini
+      geminiAnalisisCompletado: analisisGemini ? true : false,
+      tiempoAnalisisGemini: analisisGemini?.tiempoAnalisis || 0,
+      versionGemini: analisisGemini ? 'gemini-1.5-flash' : null,
+      fallbackUsado: analisisGemini?.fallbackUsado || false,
+      razonFallback: analisisGemini?.razonFallback || null
     };
+
+    return metadatosBase;
   }
 
   private determinarCarpetaPorTipo(mimeType: string): string {
@@ -632,7 +742,8 @@ export class DocumentService {
   private extraerPalabrasClave(texto: string): string[] {
     const palabrasRelevantes = [
       'universidad', 'colegio', 'instituto', 'certificate', 'diploma', 'degree',
-      'director', 'rector', 'registrar', 'oficial', 'sello', 'firma', 'microsoft', 'mvp'
+      'director', 'rector', 'registrar', 'oficial', 'sello', 'firma', 'microsoft', 'mvp',
+      'bootcamp', 'student ambassador', 'mlsa', 'cisco', 'oracle', 'aws', 'google'
     ];
     
     const textoLower = texto.toLowerCase();
@@ -664,23 +775,31 @@ export class DocumentService {
   }
 
   /**
-   * CORRECCIÓN: Actualizar estadísticas con manejo correcto de FieldValue
+   * Actualizar estadísticas con información de Gemini
    */
   private async actualizarEstadisticas(documento: DocumentoProcessado): Promise<void> {
     try {
       const estadisticasRef = db.collection('estadisticas').doc('globales');
       const fecha = new Date().toISOString().split('T')[0];
       
-      await estadisticasRef.set({
+      const actualizacion: any = {
         ultimoDocumentoProcesado: documento.id,
         ultimaFechaProcesamiento: new Date(),
-        [`documentosPorDia.${fecha}`]: FieldValue.increment(1), // CORRECCIÓN: Uso correcto de FieldValue
+        [`documentosPorDia.${fecha}`]: FieldValue.increment(1),
         totalDocumentosProcesados: FieldValue.increment(1)
-      }, { merge: true });
+      };
+
+      // NUEVO: Estadísticas específicas de Gemini
+      if (documento.analisisGemini?.habilitado) {
+        actualizacion[`documentosGeminiPorDia.${fecha}`] = FieldValue.increment(1);
+        actualizacion.totalDocumentosGemini = FieldValue.increment(1);
+        actualizacion.ultimoDocumentoGemini = documento.id;
+      }
+      
+      await estadisticasRef.set(actualizacion, { merge: true });
       
     } catch (error) {
       console.warn('⚠️ No se pudieron actualizar estadísticas globales:', error);
-      // No es crítico, solo loggeamos el warning
     }
   }
 
