@@ -1,9 +1,10 @@
 // Servicio especializado en manejo de documentos y almacenamiento
+// Versión mejorada con soporte para análisis visual y mejores metadatos
 
 import { db, storage } from '../config/firebase';
 import { v4 as uuidv4 } from 'uuid';
 
-// Definimos la estructura de datos que DocuValle maneja
+// Interfaz expandida para documentos procesados con análisis visual
 export interface DocumentoProcessado {
   id: string;
   userId: string;
@@ -14,7 +15,8 @@ export interface DocumentoProcessado {
   textoExtraido: string;
   fechaProcesamiento: Date;
   estado: 'procesando' | 'completado' | 'error';
-  // Agregamos campos para el análisis de autenticidad (HU005)
+  
+  // Campos para el análisis de autenticidad (HU005)
   scoreAutenticidad?: number;
   recomendacion?: 'accept' | 'review' | 'reject';
   elementosSeguridad?: {
@@ -22,11 +24,22 @@ export interface DocumentoProcessado {
     firmas: boolean;
     logos: boolean;
   };
+  
+  // Metadatos expandidos para análisis visual
   metadatos?: {
     numeroCaracteres: number;
     numeroPalabras: number;
     numeroLineas: number;
     calidad: 'alta' | 'media' | 'baja';
+    
+    // Nuevos campos para análisis visual
+    objetosDetectados?: number;
+    logosProcesados?: string[];
+    sellosProcesados?: string[];
+    firmasProcesadas?: string[];
+    resolucionImagen?: 'alta' | 'media' | 'baja';
+    estructuraDocumento?: 'formal' | 'informal' | 'dudosa';
+    confianzaPromedio?: number;
   };
 }
 
@@ -47,11 +60,7 @@ export class DocumentService {
 
   /**
    * Sube un archivo a Cloud Storage
-   * VERSIÓN MEJORADA para HU004 con mejor manejo de errores
-   * 
-   * @param file - Archivo recibido del frontend (viene de multer)
-   * @param procesamientoId - ID único para organizar los archivos
-   * @returns Promise<string> - URL pública del archivo subido
+   * VERSIÓN MEJORADA con mejor organización para PDFs e imágenes
    */
   async uploadFile(file: Express.Multer.File, procesamientoId: string): Promise<string> {
     try {
@@ -66,11 +75,14 @@ export class DocumentService {
         throw new Error('ID de procesamiento requerido');
       }
 
-      // Creamos un nombre único y organizado para el archivo
+      // Creamos un nombre único y organizado por tipo
       const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
       const extension = this.obtenerExtension(file.originalname);
       const nombreSanitizado = this.sanitizarNombreArchivo(file.originalname);
-      const nombreArchivoStorage = `documentos/${timestamp}/${procesamientoId}_${nombreSanitizado}`;
+      
+      // Organizamos por tipo de archivo para mejor gestión
+      const carpetaTipo = this.determinarCarpetaPorTipo(file.mimetype);
+      const nombreArchivoStorage = `documentos/${carpetaTipo}/${timestamp}/${procesamientoId}_${nombreSanitizado}`;
 
       console.log(`📂 Nombre en storage: ${nombreArchivoStorage}`);
 
@@ -80,35 +92,44 @@ export class DocumentService {
         throw new Error(`Bucket ${this.bucketName} no existe. Verifica la configuración de Firebase.`);
       }
 
+      // Validación adicional para PDFs
+      if (file.mimetype === 'application/pdf') {
+        await this.validarPDF(file.buffer);
+      }
+
       // Creamos referencia al archivo en Cloud Storage
       const archivoStorage = this.bucket.file(nombreArchivoStorage);
 
-      // Configuramos las opciones de subida
+      // Configuramos las opciones de subida mejoradas
       const stream = archivoStorage.createWriteStream({
         metadata: {
           contentType: file.mimetype,
           cacheControl: 'public, max-age=31536000', // Cache por 1 año
           metadata: {
-            // Metadatos personalizados para DocuValle
+            // Metadatos personalizados ampliados
             originalName: file.originalname,
             uploadDate: new Date().toISOString(),
             procesamientoId: procesamientoId,
             uploadedBy: 'docuvalle-backend',
-            fileSize: file.size.toString()
+            fileSize: file.size.toString(),
+            fileExtension: extension,
+            documentType: this.determinarTipoDocumento(file.originalname),
+            version: '2.0'
           }
         },
-        // Hacemos el archivo públicamente legible
         public: true,
-        // Validamos la integridad del archivo
-        validation: 'md5'
+        validation: 'md5',
+        // Configuración optimizada según el tipo de archivo
+        resumable: file.size > 5 * 1024 * 1024 // Resumable para archivos > 5MB
       });
 
       // Subimos el archivo como una promesa
       return new Promise((resolve, reject) => {
-        // Timeout de 60 segundos para uploads grandes
+        // Timeout ajustado según el tamaño del archivo
+        const timeoutMs = Math.max(60000, file.size / 1024); // Mínimo 60s, +1s por KB
         const timeout = setTimeout(() => {
-          reject(new Error('Timeout subiendo archivo (60s)'));
-        }, 60000);
+          reject(new Error(`Timeout subiendo archivo (${timeoutMs/1000}s)`));
+        }, timeoutMs);
 
         stream.on('error', (error: Error) => {
           clearTimeout(timeout);
@@ -149,6 +170,8 @@ export class DocumentService {
           throw new Error('Error de configuración de Cloud Storage. Verifica que el bucket existe y tienes permisos.');
         } else if (error.message.includes('permission')) {
           throw new Error('Error de permisos en Cloud Storage. Verifica la configuración de IAM.');
+        } else if (error.message.includes('PDF corrupto')) {
+          throw new Error('El archivo PDF está corrupto o no es válido.');
         } else {
           throw new Error(`Error subiendo archivo: ${error.message}`);
         }
@@ -160,21 +183,21 @@ export class DocumentService {
 
   /**
    * Guarda los resultados del procesamiento en Firestore
-   * VERSIÓN MEJORADA con campos para análisis de autenticidad
+   * VERSIÓN MEJORADA con campos expandidos para análisis visual
    */
   async saveProcessingResult(documento: DocumentoProcessado): Promise<string> {
     try {
-      console.log(`💾 [DocumentService] Guardando resultado: ${documento.id}`);
+      console.log(`💾 [DocumentService] Guardando resultado mejorado: ${documento.id}`);
 
       // Validaciones de entrada
       if (!documento.id || !documento.userId) {
         throw new Error('ID de documento y userId son obligatorios');
       }
 
-      // Calculamos metadatos adicionales del texto extraído
-      const metadatos = this.calcularMetadatos(documento.textoExtraido);
+      // Calculamos metadatos mejorados del texto extraído
+      const metadatos = this.calcularMetadatosAvanzados(documento.textoExtraido, documento.metadatos);
 
-      // Preparamos el documento para Firestore
+      // Preparamos el documento para Firestore con campos expandidos
       const documentoFirestore = {
         id: documento.id,
         userId: documento.userId,
@@ -194,13 +217,20 @@ export class DocumentService {
           logos: false
         },
         
-        metadatos: {
-          ...metadatos,
-          ...documento.metadatos
-        },
+        // Metadatos expandidos con información del análisis visual
+        metadatos: metadatos,
+        
         // Solo guardamos una vista previa del texto en el documento principal
         textoPreview: documento.textoExtraido.substring(0, 500),
-        textoCompleto: documento.textoExtraido.length > 500 // Indicador si hay más texto
+        textoCompleto: documento.textoExtraido.length > 500, // Indicador si hay más texto
+        
+        // Campos adicionales para búsqueda y filtrado
+        tipoDocumentoDetectado: this.detectarTipoDocumentoPorTexto(documento.textoExtraido),
+        palabrasClave: this.extraerPalabrasClave(documento.textoExtraido),
+        
+        // Información de la versión del algoritmo
+        versionAnalisis: '2.0',
+        fechaUltimaActualizacion: new Date()
       };
 
       // Guardamos en la colección principal de documentos
@@ -211,9 +241,13 @@ export class DocumentService {
         await db.collection('textos-completos').doc(documento.id).set({
           documentoId: documento.id,
           textoCompleto: documento.textoExtraido,
-          fechaGuardado: new Date()
+          fechaGuardado: new Date(),
+          checksum: this.calcularChecksum(documento.textoExtraido) // Para verificar integridad
         });
       }
+
+      // Guardamos estadísticas para el dashboard
+      await this.actualizarEstadisticas(documento);
 
       console.log(`✅ Documento guardado exitosamente en Firestore: ${documento.id}`);
       return documento.id;
@@ -237,8 +271,15 @@ export class DocumentService {
 
   /**
    * Obtiene todos los documentos de un usuario específico
+   * VERSIÓN MEJORADA con más opciones de filtrado
    */
-  async getUserDocuments(userId: string): Promise<DocumentoProcessado[]> {
+  async getUserDocuments(userId: string, filtros?: {
+    limite?: number;
+    tipoDocumento?: string;
+    recomendacion?: string;
+    fechaDesde?: Date;
+    fechaHasta?: Date;
+  }): Promise<DocumentoProcessado[]> {
     try {
       console.log(`🔍 [DocumentService] Buscando documentos del usuario: ${userId}`);
 
@@ -246,14 +287,34 @@ export class DocumentService {
         throw new Error('userId es obligatorio');
       }
 
-      // Consultamos Firestore ordenando por fecha más reciente primero
-      const snapshot = await db
+      // Construimos la consulta base
+      let consulta = db
         .collection('documentos')
-        .where('userId', '==', userId)
-        .orderBy('fechaProcesamiento', 'desc')
-        .limit(50) // Limitamos a 50 documentos más recientes
-        .get();
+        .where('userId', '==', userId);
 
+      // Aplicamos filtros adicionales si existen
+      if (filtros?.tipoDocumento) {
+        consulta = consulta.where('tipoDocumentoDetectado', '==', filtros.tipoDocumento);
+      }
+
+      if (filtros?.recomendacion) {
+        consulta = consulta.where('recomendacion', '==', filtros.recomendacion);
+      }
+
+      if (filtros?.fechaDesde) {
+        consulta = consulta.where('fechaProcesamiento', '>=', filtros.fechaDesde);
+      }
+
+      if (filtros?.fechaHasta) {
+        consulta = consulta.where('fechaProcesamiento', '<=', filtros.fechaHasta);
+      }
+
+      // Ordenamos y limitamos
+      consulta = consulta
+        .orderBy('fechaProcesamiento', 'desc')
+        .limit(filtros?.limite || 50);
+
+      const snapshot = await consulta.get();
       const documentos: DocumentoProcessado[] = [];
 
       // Convertimos cada documento de Firestore a nuestro formato
@@ -286,8 +347,91 @@ export class DocumentService {
   }
 
   /**
+   * Obtiene estadísticas del dashboard
+   */
+  async obtenerEstadisticasDashboard(userId?: string): Promise<{
+    totalDocumentos: number;
+    documentosHoy: number;
+    scorePromedio: number;
+    distribucionRecomendaciones: { [key: string]: number };
+    tiposDocumentosMasComunes: { [key: string]: number };
+    tendenciaUltimos30Dias: Array<{ fecha: string; cantidad: number }>;
+  }> {
+    try {
+      console.log('📊 Calculando estadísticas del dashboard...');
+
+      let consultaBase = db.collection('documentos');
+      
+      if (userId) {
+        consultaBase = consultaBase.where('userId', '==', userId);
+      }
+
+      // Total de documentos
+      const snapshotTotal = await consultaBase.get();
+      const totalDocumentos = snapshotTotal.size;
+
+      // Documentos de hoy
+      const inicioHoy = new Date();
+      inicioHoy.setHours(0, 0, 0, 0);
+      const snapshotHoy = await consultaBase
+        .where('fechaProcesamiento', '>=', inicioHoy)
+        .get();
+      const documentosHoy = snapshotHoy.size;
+
+      // Calculamos estadísticas de los documentos
+      let sumaScores = 0;
+      let contadorScores = 0;
+      const distribucionRecomendaciones: { [key: string]: number } = {};
+      const tiposDocumentosMasComunes: { [key: string]: number } = {};
+
+      snapshotTotal.forEach((doc: any) => {
+        const data = doc.data();
+        
+        // Score promedio
+        if (data.scoreAutenticidad !== undefined) {
+          sumaScores += data.scoreAutenticidad;
+          contadorScores++;
+        }
+
+        // Distribución de recomendaciones
+        const recomendacion = data.recomendacion || 'sin_determinar';
+        distribucionRecomendaciones[recomendacion] = (distribucionRecomendaciones[recomendacion] || 0) + 1;
+
+        // Tipos de documento más comunes
+        const tipoDetectado = data.tipoDocumentoDetectado || 'no_determinado';
+        tiposDocumentosMasComunes[tipoDetectado] = (tiposDocumentosMasComunes[tipoDetectado] || 0) + 1;
+      });
+
+      const scorePromedio = contadorScores > 0 ? Math.round((sumaScores / contadorScores) * 100) / 100 : 0;
+
+      // Tendencia de últimos 30 días
+      const hace30Dias = new Date();
+      hace30Dias.setDate(hace30Dias.getDate() - 30);
+      
+      const snapshotTendencia = await consultaBase
+        .where('fechaProcesamiento', '>=', hace30Dias)
+        .orderBy('fechaProcesamiento', 'asc')
+        .get();
+
+      const tendenciaUltimos30Dias = this.procesarTendencia(snapshotTendencia);
+
+      return {
+        totalDocumentos,
+        documentosHoy,
+        scorePromedio,
+        distribucionRecomendaciones,
+        tiposDocumentosMasComunes,
+        tendenciaUltimos30Dias
+      };
+
+    } catch (error) {
+      console.error('❌ Error calculando estadísticas:', error);
+      throw new Error(`Error obteniendo estadísticas: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    }
+  }
+
+  /**
    * Método para probar la conectividad con Cloud Storage
-   * Útil para debugging
    */
   async testStorageConnection(): Promise<{ success: boolean; message: string; details?: any }> {
     try {
@@ -361,9 +505,13 @@ export class DocumentService {
   }
 
   /**
-   * Calcula metadatos útiles del texto extraído
+   * FUNCIONES AUXILIARES MEJORADAS
    */
-  private calcularMetadatos(texto: string) {
+
+  /**
+   * Calcula metadatos avanzados del texto extraído
+   */
+  private calcularMetadatosAvanzados(texto: string, metadatosExistentes?: any) {
     const palabras = texto.split(/\s+/).filter(palabra => palabra.length > 0);
     const lineas = texto.split('\n').filter(linea => linea.trim().length > 0);
     
@@ -373,14 +521,141 @@ export class DocumentService {
       numeroLineas: lineas.length,
       promedioCaracteresPorPalabra: palabras.length > 0 ? Math.round((texto.length / palabras.length) * 100) / 100 : 0,
       promedioPalabrasPorLinea: lineas.length > 0 ? Math.round((palabras.length / lineas.length) * 100) / 100 : 0,
-      calidad: this.determinarCalidadTexto(palabras.length, texto.length) as 'alta' | 'media' | 'baja'
+      calidad: this.determinarCalidadTexto(palabras.length, texto.length) as 'alta' | 'media' | 'baja',
+      
+      // Nuevos campos de metadatos existentes si los hay
+      objetosDetectados: metadatosExistentes?.objetosDetectados || 0,
+      logosProcesados: metadatosExistentes?.logosProcesados || [],
+      sellosProcesados: metadatosExistentes?.sellosProcesados || [],
+      firmasProcesadas: metadatosExistentes?.firmasProcesadas || [],
+      resolucionImagen: metadatosExistentes?.resolucionImagen || 'media',
+      estructuraDocumento: metadatosExistentes?.estructuraDocumento || 'informal',
+      confianzaPromedio: metadatosExistentes?.confianzaPromedio || 0
     };
 
     return metadatos;
   }
 
   /**
-   * Determina la calidad del texto extraído basado en métricas
+   * Determina la carpeta por tipo de archivo
+   */
+  private determinarCarpetaPorTipo(mimeType: string): string {
+    if (mimeType === 'application/pdf') return 'pdfs';
+    if (mimeType.startsWith('image/')) return 'imagenes';
+    return 'otros';
+  }
+
+  /**
+   * Determina el tipo de documento por el nombre
+   */
+  private determinarTipoDocumento(nombreArchivo: string): string {
+    const nombreLower = nombreArchivo.toLowerCase();
+    
+    if (nombreLower.includes('diploma') || nombreLower.includes('titulo')) return 'diploma';
+    if (nombreLower.includes('certificado') || nombreLower.includes('certificate')) return 'certificado';
+    if (nombreLower.includes('nota') || nombreLower.includes('grade')) return 'notas';
+    if (nombreLower.includes('cedula') || nombreLower.includes('id')) return 'identificacion';
+    
+    return 'documento_general';
+  }
+
+  /**
+   * Detecta el tipo de documento por el contenido del texto
+   */
+  private detectarTipoDocumentoPorTexto(texto: string): string {
+    const textoLower = texto.toLowerCase();
+    
+    if (textoLower.includes('diploma') || textoLower.includes('degree')) return 'diploma';
+    if (textoLower.includes('certificado') || textoLower.includes('certificate')) return 'certificado';
+    if (textoLower.includes('nota') || textoLower.includes('calificacion') || textoLower.includes('grade')) return 'notas';
+    if (textoLower.includes('cedula') || textoLower.includes('identificacion')) return 'identificacion';
+    if (textoLower.includes('pasaporte') || textoLower.includes('passport')) return 'pasaporte';
+    
+    return 'documento_general';
+  }
+
+  /**
+   * Extrae palabras clave del texto para búsqueda
+   */
+  private extraerPalabrasClave(texto: string): string[] {
+    const palabrasRelevantes = [
+      'universidad', 'colegio', 'instituto', 'certificate', 'diploma', 'degree',
+      'director', 'rector', 'registrar', 'oficial', 'sello', 'firma'
+    ];
+    
+    const textoLower = texto.toLowerCase();
+    return palabrasRelevantes.filter(palabra => textoLower.includes(palabra));
+  }
+
+  /**
+   * Calcula un checksum simple para verificar integridad
+   */
+  private calcularChecksum(texto: string): string {
+    let hash = 0;
+    for (let i = 0; i < texto.length; i++) {
+      const char = texto.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convertir a 32bit integer
+    }
+    return hash.toString(16);
+  }
+
+  /**
+   * Procesa datos para crear tendencia de 30 días
+   */
+  private procesarTendencia(snapshot: any): Array<{ fecha: string; cantidad: number }> {
+    const contadorPorDia: { [fecha: string]: number } = {};
+    
+    snapshot.forEach((doc: any) => {
+      const data = doc.data();
+      const fecha = data.fechaProcesamiento.toDate().toISOString().split('T')[0];
+      contadorPorDia[fecha] = (contadorPorDia[fecha] || 0) + 1;
+    });
+
+    return Object.entries(contadorPorDia)
+      .map(([fecha, cantidad]) => ({ fecha, cantidad }))
+      .sort((a, b) => a.fecha.localeCompare(b.fecha));
+  }
+
+  /**
+   * Actualiza estadísticas globales del sistema
+   */
+  private async actualizarEstadisticas(documento: DocumentoProcessado): Promise<void> {
+    try {
+      const estadisticasRef = db.collection('estadisticas').doc('globales');
+      const fecha = new Date().toISOString().split('T')[0];
+      
+      await estadisticasRef.set({
+        ultimoDocumentoProcesado: documento.id,
+        ultimaFechaProcesamiento: new Date(),
+        [`documentosPorDia.${fecha}`]: db.FieldValue.increment(1),
+        totalDocumentosProcesados: db.FieldValue.increment(1)
+      }, { merge: true });
+      
+    } catch (error) {
+      console.warn('⚠️ No se pudieron actualizar estadísticas globales:', error);
+      // No es crítico, así que solo loggeamos el warning
+    }
+  }
+
+  /**
+   * Valida que un PDF sea válido
+   */
+  private async validarPDF(buffer: Buffer): Promise<void> {
+    // Verificar que tenga el header PDF
+    const header = buffer.slice(0, 5).toString();
+    if (!header.startsWith('%PDF-')) {
+      throw new Error('PDF corrupto: Header inválido');
+    }
+    
+    // Verificar tamaño mínimo
+    if (buffer.length < 100) {
+      throw new Error('PDF corrupto: Archivo demasiado pequeño');
+    }
+  }
+
+  /**
+   * Determina la calidad del texto extraído
    */
   private determinarCalidadTexto(palabras: number, caracteres: number): string {
     if (palabras > 100 && caracteres > 500) {
@@ -412,7 +687,6 @@ export class DocumentService {
 
   /**
    * Elimina un documento y su archivo asociado
-   * Útil para limpiar documentos que ya no se necesitan
    */
   async eliminarDocumento(documentoId: string, userId: string): Promise<void> {
     try {
