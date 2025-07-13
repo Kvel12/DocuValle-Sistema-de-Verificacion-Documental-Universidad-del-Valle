@@ -1,10 +1,10 @@
-// Subir y Procesar Documento - Versión mejorada con análisis visual
+// Subir y Procesar Documento - Versión final con marcado manual y diseño mejorado
 
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 
-// Interfaces expandidas para el análisis visual
+// Interfaces expandidas
 interface ArchivoSubido {
   id: string;
   nombreArchivo: string;
@@ -48,7 +48,6 @@ interface ResultadoAnalisis {
   elementosSeguridad: ElementosSeguridad;
   archivoUrl: string;
   fechaAnalisis: string;
-  // Nuevos campos del análisis mejorado
   analisisDetallado?: AnalisisDetallado;
 }
 
@@ -59,38 +58,55 @@ interface AsignacionUsuario {
   fechaAsignacion: string;
 }
 
+// NUEVA: Interfaz para marcado manual
+interface RevisionManual {
+  documentoId: string;
+  decision: 'accept' | 'review' | 'reject';
+  comentario: string;
+  revisorId: string;
+  fechaRevision: string;
+}
+
 // URL del backend
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://docuvalle-backend-166554040569.us-central1.run.app';
 
 const UploadDocumento: React.FC = () => {
-  // Estados para el flujo
+  // Estados principales
+  const [pasoActual, setPasoActual] = useState(1); // NUEVO: Control de pasos
   const [archivo, setArchivo] = useState<File | null>(null);
   const [archivoSubido, setArchivoSubido] = useState<ArchivoSubido | null>(null);
   const [resultado, setResultado] = useState<ResultadoAnalisis | null>(null);
   const [asignacion, setAsignacion] = useState<AsignacionUsuario | null>(null);
+  const [revisionManual, setRevisionManual] = useState<RevisionManual | null>(null);
   
-  // Estados para el UI
+  // Estados de carga
   const [subiendo, setSubiendo] = useState(false);
   const [analizando, setAnalizando] = useState(false);
   const [asignando, setAsignando] = useState(false);
+  const [marcandoManual, setMarcandoManual] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Estados para la asignación de usuario
+  // Estados de modales
   const [nombreUsuario, setNombreUsuario] = useState('');
   const [tipoDocumento, setTipoDocumento] = useState('');
   const [mostrarAsignacion, setMostrarAsignacion] = useState(false);
-  
-  // Estados para la vista detallada
   const [mostrarDetalles, setMostrarDetalles] = useState(false);
+  const [mostrarMarcadoManual, setMostrarMarcadoManual] = useState(false);
+  
+  // Estados para marcado manual
+  const [decisionManual, setDecisionManual] = useState<'accept' | 'review' | 'reject'>('review');
+  const [comentarioRevisor, setComentarioRevisor] = useState('');
 
-  // Configuración de react-dropzone mejorada
+  // Configuración de react-dropzone
   const onDrop = useCallback((archivosAceptados: File[]) => {
     if (archivosAceptados.length > 0 && !archivoSubido) {
       setArchivo(archivosAceptados[0]);
       setArchivoSubido(null);
       setResultado(null);
       setAsignacion(null);
+      setRevisionManual(null);
       setError(null);
+      setPasoActual(1);
       console.log('📄 Archivo seleccionado:', archivosAceptados[0].name);
     }
   }, [archivoSubido]);
@@ -99,10 +115,10 @@ const UploadDocumento: React.FC = () => {
     onDrop,
     accept: {
       'image/*': ['.jpeg', '.jpg', '.png'],
-      'application/pdf': ['.pdf'] // PDF ahora soportado
+      'application/pdf': ['.pdf']
     },
     maxFiles: 1,
-    maxSize: 10 * 1024 * 1024, // 10MB máximo
+    maxSize: 10 * 1024 * 1024,
     disabled: subiendo || analizando || !!archivoSubido
   });
 
@@ -117,8 +133,6 @@ const UploadDocumento: React.FC = () => {
     setError(null);
 
     try {
-      console.log(`📤 Subiendo archivo: ${archivo.name} (${archivo.size} bytes)`);
-
       const formData = new FormData();
       formData.append('archivo', archivo);
 
@@ -126,14 +140,13 @@ const UploadDocumento: React.FC = () => {
         `${API_BASE_URL}/api/documents/upload`,
         formData,
         {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
+          headers: { 'Content-Type': 'multipart/form-data' },
           timeout: 60000,
         }
       );
 
       setArchivoSubido(respuesta.data.documento);
+      setPasoActual(2);
       console.log('✅ Archivo subido exitosamente:', respuesta.data.documento);
 
     } catch (error) {
@@ -150,7 +163,7 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // PASO 2: Analizar documento con análisis visual mejorado
+  // PASO 2: Analizar documento
   const analizarDocumento = async () => {
     if (!archivoSubido) {
       setError('Primero debes subir un archivo');
@@ -161,8 +174,6 @@ const UploadDocumento: React.FC = () => {
     setError(null);
 
     try {
-      console.log(`🔍 Analizando documento con IA mejorada: ${archivoSubido.id}`);
-
       const payload = {
         documentoId: archivoSubido.id,
         archivoUrl: archivoSubido.archivoUrl,
@@ -175,12 +186,11 @@ const UploadDocumento: React.FC = () => {
       const respuesta = await axios.post(
         `${API_BASE_URL}/api/documents/analyze`,
         payload,
-        {
-          timeout: 120000, // 2 minutos para el análisis
-        }
+        { timeout: 120000 }
       );
 
       setResultado(respuesta.data.resultado);
+      setPasoActual(3);
       console.log('🎉 Documento analizado exitosamente:', respuesta.data.resultado);
 
     } catch (error) {
@@ -188,11 +198,7 @@ const UploadDocumento: React.FC = () => {
       
       if (axios.isAxiosError(error)) {
         const errorData = error.response?.data;
-        if (error.response?.status === 404) {
-          setError('El endpoint de análisis no está disponible. Verifica que el backend tenga los nuevos endpoints.');
-        } else {
-          setError(errorData?.message || 'Error analizando el documento');
-        }
+        setError(errorData?.message || 'Error analizando el documento');
       } else {
         setError('Error de conexión analizando el documento');
       }
@@ -201,7 +207,47 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // HU006 - Asignar documento a usuario
+  // NUEVO: Marcado manual del documento
+  const marcarManualmente = async () => {
+    if (!resultado) {
+      setError('No hay documento para marcar');
+      return;
+    }
+
+    setMarcandoManual(true);
+    setError(null);
+
+    try {
+      const payload = {
+        decision: decisionManual,
+        comentario: comentarioRevisor,
+        revisorId: 'revisor-manual'
+      };
+
+      const respuesta = await axios.post(
+        `${API_BASE_URL}/api/documents/${resultado.id}/manual-review`,
+        payload
+      );
+
+      setRevisionManual(respuesta.data.revision);
+      setMostrarMarcadoManual(false);
+      console.log('✅ Documento marcado manualmente:', respuesta.data.revision);
+
+    } catch (error) {
+      console.error('❌ Error marcando documento:', error);
+      
+      if (axios.isAxiosError(error)) {
+        const errorData = error.response?.data;
+        setError(errorData?.message || 'Error marcando el documento');
+      } else {
+        setError('Error de conexión marcando el documento');
+      }
+    } finally {
+      setMarcandoManual(false);
+    }
+  };
+
+  // Asignar documento a usuario
   const asignarDocumento = async () => {
     if (!resultado || !nombreUsuario.trim()) {
       setError('Completa el nombre del usuario');
@@ -212,8 +258,6 @@ const UploadDocumento: React.FC = () => {
     setError(null);
 
     try {
-      console.log(`👤 Asignando documento ${resultado.id} a ${nombreUsuario}`);
-
       const payload = {
         nombreUsuario: nombreUsuario.trim(),
         tipoDocumento: tipoDocumento || 'documento_general'
@@ -226,6 +270,7 @@ const UploadDocumento: React.FC = () => {
 
       setAsignacion(respuesta.data.asignacion);
       setMostrarAsignacion(false);
+      setPasoActual(4);
       console.log('✅ Documento asignado exitosamente:', respuesta.data.asignacion);
 
     } catch (error) {
@@ -242,27 +287,31 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // Función para reiniciar el proceso
+  // Reiniciar proceso
   const reiniciarProceso = () => {
     setArchivo(null);
     setArchivoSubido(null);
     setResultado(null);
     setAsignacion(null);
+    setRevisionManual(null);
     setError(null);
+    setPasoActual(1);
     setNombreUsuario('');
     setTipoDocumento('');
+    setComentarioRevisor('');
+    setDecisionManual('review');
     setMostrarAsignacion(false);
     setMostrarDetalles(false);
+    setMostrarMarcadoManual(false);
   };
 
-  // Función para obtener el color del score
+  // Funciones auxiliares
   const obtenerColorScore = (score: number): string => {
-    if (score >= 85) return '#4caf50'; // Verde - Umbral ajustado
-    if (score >= 60) return '#ff9800'; // Naranja - Umbral ajustado
-    return '#f44336'; // Rojo
+    if (score >= 75) return '#4caf50';
+    if (score >= 45) return '#ff9800';
+    return '#f44336';
   };
 
-  // Función para obtener el icono según la categoría
   const obtenerIconoCategoria = (categoria: string): string => {
     switch (categoria) {
       case 'sello': return '🏛️';
@@ -272,7 +321,6 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // Función para obtener el color de la calidad
   const obtenerColorCalidad = (calidad: string): string => {
     switch (calidad) {
       case 'alta': return '#4caf50';
@@ -282,8 +330,43 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
+  const obtenerTextoDecision = (decision: string): string => {
+    switch (decision) {
+      case 'accept': return '✅ ACEPTADO';
+      case 'reject': return '❌ RECHAZADO';
+      case 'review': return '⚠️ REQUIERE REVISIÓN';
+      default: return '❓ SIN MARCAR';
+    }
+  };
+
   return (
     <div className="upload-documento-container">
+      {/* NUEVO: Indicador de progreso */}
+      <div className="progreso-pasos">
+        <div className="paso-progreso">
+          <div className={`paso-numero ${pasoActual >= 1 ? 'activo' : ''} ${pasoActual > 1 ? 'completado' : ''}`}>1</div>
+          <span className="paso-texto">Subir</span>
+        </div>
+        <div className={`linea-progreso ${pasoActual > 1 ? 'completada' : ''}`}></div>
+        
+        <div className="paso-progreso">
+          <div className={`paso-numero ${pasoActual >= 2 ? 'activo' : ''} ${pasoActual > 2 ? 'completado' : ''}`}>2</div>
+          <span className="paso-texto">Analizar</span>
+        </div>
+        <div className={`linea-progreso ${pasoActual > 2 ? 'completada' : ''}`}></div>
+        
+        <div className="paso-progreso">
+          <div className={`paso-numero ${pasoActual >= 3 ? 'activo' : ''} ${pasoActual > 3 ? 'completado' : ''}`}>3</div>
+          <span className="paso-texto">Resultados</span>
+        </div>
+        <div className={`linea-progreso ${pasoActual > 3 ? 'completada' : ''}`}></div>
+        
+        <div className="paso-progreso">
+          <div className={`paso-numero ${pasoActual >= 4 ? 'activo' : ''}`}>4</div>
+          <span className="paso-texto">Completado</span>
+        </div>
+      </div>
+
       <h2>📄 Procesar Documento (Con IA Mejorada)</h2>
       
       {error && (
@@ -306,11 +389,12 @@ const UploadDocumento: React.FC = () => {
             {archivo ? (
               <div className="archivo-seleccionado">
                 <h4>📁 Archivo seleccionado:</h4>
-                <p><strong>Nombre:</strong> {archivo.name}</p>
-                <p><strong>Tamaño:</strong> {(archivo.size / 1024 / 1024).toFixed(2)} MB</p>
-                <p><strong>Tipo:</strong> {archivo.type}</p>
+                <div className="info-archivo">
+                  <p><strong>Nombre:</strong> {archivo.name}</p>
+                  <p><strong>Tamaño:</strong> {(archivo.size / 1024 / 1024).toFixed(2)} MB</p>
+                  <p><strong>Tipo:</strong> {archivo.type}</p>
+                </div>
                 
-                {/* Preview mejorado */}
                 {archivo.type.startsWith('image/') && (
                   <div className="preview-imagen">
                     <img 
@@ -402,26 +486,26 @@ const UploadDocumento: React.FC = () => {
             <div className="progreso-analisis">
               <div className="spinner"></div>
               <p>🔍 Analizando documento con inteligencia artificial...</p>
-              <ul className="pasos-analisis">
-                <li>📝 Extrayendo texto</li>
-                <li>🔍 Detectando elementos de seguridad</li>
-                <li>🏛️ Buscando sellos oficiales</li>
-                <li>✍️ Identificando firmas</li>
-                <li>🎯 Reconociendo logos</li>
-                <li>📊 Calculando score de autenticidad</li>
-              </ul>
+              <div className="pasos-analisis">
+                <div className="paso-analisis-item">📝 Extrayendo texto</div>
+                <div className="paso-analisis-item">🔍 Detectando elementos de seguridad</div>
+                <div className="paso-analisis-item">🏛️ Buscando sellos oficiales</div>
+                <div className="paso-analisis-item">✍️ Identificando firmas</div>
+                <div className="paso-analisis-item">🎯 Reconociendo logos</div>
+                <div className="paso-analisis-item">📊 Calculando score de autenticidad</div>
+              </div>
             </div>
           )}
         </section>
       )}
 
-      {/* PASO 3: Resultados del análisis mejorado */}
+      {/* PASO 3: Resultados del análisis */}
       {resultado && (
         <section className="paso-resultados">
           <h3>Paso 3: Resultados del Análisis IA 📊</h3>
           
           <div className="resultado-analisis">
-            {/* Score principal */}
+            {/* Score principal con estado de revisión manual */}
             <div className="score-autenticidad">
               <h4>Score de Autenticidad</h4>
               <div 
@@ -431,9 +515,24 @@ const UploadDocumento: React.FC = () => {
                 {resultado.scoreAutenticidad}/100
               </div>
               <p className="recomendacion">{resultado.recomendacionTexto}</p>
+              
+              {/* NUEVO: Estado de revisión manual */}
+              {revisionManual && (
+                <div className="revision-manual-estado">
+                  <h5>Estado de Revisión Manual:</h5>
+                  <div className={`decision-manual ${revisionManual.decision}`}>
+                    {obtenerTextoDecision(revisionManual.decision)}
+                  </div>
+                  {revisionManual.comentario && (
+                    <p className="comentario-revisor">
+                      <strong>Comentario:</strong> {revisionManual.comentario}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Elementos de seguridad mejorados */}
+            {/* Elementos de seguridad */}
             <div className="elementos-seguridad">
               <h4>🔒 Elementos de Seguridad Detectados</h4>
               <div className="elementos-grid">
@@ -449,7 +548,7 @@ const UploadDocumento: React.FC = () => {
               </div>
             </div>
 
-            {/* Calidad del documento (nuevo) */}
+            {/* Calidad del documento */}
             {resultado.analisisDetallado && (
               <div className="calidad-documento">
                 <h4>📋 Calidad del Documento</h4>
@@ -498,6 +597,16 @@ const UploadDocumento: React.FC = () => {
 
             {/* Botones de acción */}
             <div className="botones-resultado">
+              {/* NUEVO: Botón de marcado manual */}
+              {!revisionManual && (
+                <button 
+                  onClick={() => setMostrarMarcadoManual(true)}
+                  className="btn-marcar-manual"
+                >
+                  👨‍⚖️ Marcar Manualmente
+                </button>
+              )}
+              
               {resultado.analisisDetallado && (
                 <button 
                   onClick={() => setMostrarDetalles(true)}
@@ -506,12 +615,14 @@ const UploadDocumento: React.FC = () => {
                   🔍 Ver Análisis Detallado
                 </button>
               )}
+              
               <button 
                 onClick={() => setMostrarAsignacion(true)}
                 className="btn-asignar"
               >
                 👤 Asignar a Usuario
               </button>
+              
               <button 
                 onClick={reiniciarProceso}
                 className="btn-nuevo"
@@ -523,13 +634,63 @@ const UploadDocumento: React.FC = () => {
         </section>
       )}
 
-      {/* MODAL: Análisis detallado */}
+      {/* NUEVO: Modal de marcado manual */}
+      {mostrarMarcadoManual && (
+        <div className="modal-marcado-manual">
+          <div className="modal-content">
+            <h3>👨‍⚖️ Marcado Manual del Documento</h3>
+            
+            <div className="form-marcado">
+              <div className="campo">
+                <label htmlFor="decisionManual">Decisión Manual *</label>
+                <select
+                  id="decisionManual"
+                  value={decisionManual}
+                  onChange={(e) => setDecisionManual(e.target.value as 'accept' | 'review' | 'reject')}
+                >
+                  <option value="accept">✅ ACEPTAR - Documento auténtico</option>
+                  <option value="review">⚠️ REVISAR - Requiere más análisis</option>
+                  <option value="reject">❌ RECHAZAR - Documento no válido</option>
+                </select>
+              </div>
+
+              <div className="campo">
+                <label htmlFor="comentarioRevisor">Comentario del Revisor</label>
+                <textarea
+                  id="comentarioRevisor"
+                  value={comentarioRevisor}
+                  onChange={(e) => setComentarioRevisor(e.target.value)}
+                  placeholder="Escribe las razones de tu decisión..."
+                  rows={4}
+                />
+              </div>
+
+              <div className="botones-modal">
+                <button 
+                  onClick={marcarManualmente}
+                  disabled={marcandoManual}
+                  className="btn-confirmar"
+                >
+                  {marcandoManual ? '⏳ Marcando...' : '✅ Confirmar Marcado'}
+                </button>
+                <button 
+                  onClick={() => setMostrarMarcadoManual(false)}
+                  className="btn-cancelar"
+                >
+                  ❌ Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de análisis detallado */}
       {mostrarDetalles && resultado?.analisisDetallado && (
         <div className="modal-detalles">
           <div className="modal-content-large">
             <h3>🔍 Análisis Detallado del Documento</h3>
             
-            {/* Objetos detectados */}
             <div className="seccion-detalles">
               <h4>📊 Objetos Detectados por IA ({resultado.analisisDetallado.objetosDetectados.length})</h4>
               {resultado.analisisDetallado.objetosDetectados.length > 0 ? (
@@ -548,7 +709,6 @@ const UploadDocumento: React.FC = () => {
               )}
             </div>
 
-            {/* Detalles de elementos de seguridad */}
             <div className="seccion-detalles">
               <h4>🔒 Detalles de Elementos de Seguridad</h4>
               
@@ -606,7 +766,7 @@ const UploadDocumento: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: Asignar documento a usuario */}
+      {/* Modal de asignación de usuario */}
       {mostrarAsignacion && (
         <div className="modal-asignacion">
           <div className="modal-content">
@@ -637,6 +797,7 @@ const UploadDocumento: React.FC = () => {
                   <option value="certificado_notas">Certificado de Notas</option>
                   <option value="titulo_universitario">Título Universitario</option>
                   <option value="certificado_idiomas">Certificado de Idiomas</option>
+                  <option value="certificado_microsoft">Certificado Microsoft</option>
                   <option value="identificacion">Documento de Identificación</option>
                   <option value="pasaporte">Pasaporte</option>
                   <option value="otro">Otro</option>
@@ -667,10 +828,15 @@ const UploadDocumento: React.FC = () => {
       {asignacion && (
         <section className="confirmacion-asignacion">
           <div className="mensaje-exito">
-            <h3>✅ Documento Asignado Exitosamente</h3>
-            <p><strong>Usuario:</strong> {asignacion.nombreUsuario}</p>
-            <p><strong>Tipo:</strong> {asignacion.tipoDocumento}</p>
-            <p><strong>Fecha:</strong> {new Date(asignacion.fechaAsignacion).toLocaleString()}</p>
+            <h3>✅ Proceso Completado Exitosamente</h3>
+            <div className="detalles-finales">
+              <p><strong>Usuario:</strong> {asignacion.nombreUsuario}</p>
+              <p><strong>Tipo:</strong> {asignacion.tipoDocumento}</p>
+              <p><strong>Fecha:</strong> {new Date(asignacion.fechaAsignacion).toLocaleString()}</p>
+              {revisionManual && (
+                <p><strong>Estado Manual:</strong> {obtenerTextoDecision(revisionManual.decision)}</p>
+              )}
+            </div>
           </div>
         </section>
       )}
