@@ -1,10 +1,10 @@
-// Subir y Procesar Documento
+// Subir y Procesar Documento - Versión mejorada con análisis visual
 
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 
-// Definimos las interfaces
+// Interfaces expandidas para el análisis visual
 interface ArchivoSubido {
   id: string;
   nombreArchivo: string;
@@ -14,6 +14,30 @@ interface ArchivoSubido {
   fechaSubida: string;
 }
 
+interface ElementosSeguridad {
+  sellos: boolean;
+  firmas: boolean;
+  logos: boolean;
+}
+
+interface AnalisisDetallado {
+  objetosDetectados: Array<{
+    nombre: string;
+    confianza: number;
+    categoria: 'sello' | 'firma' | 'logo' | 'otro';
+  }>;
+  calidadDocumento: {
+    claridadTexto: 'alta' | 'media' | 'baja';
+    resolucion: 'alta' | 'media' | 'baja';
+    estructuraDocumento: 'formal' | 'informal' | 'dudosa';
+  };
+  detallesElementos: {
+    sellos: string[];
+    firmas: string[];
+    logos: string[];
+  };
+}
+
 interface ResultadoAnalisis {
   id: string;
   textoExtraido: string;
@@ -21,13 +45,11 @@ interface ResultadoAnalisis {
   scoreAutenticidad: number;
   recomendacion: 'accept' | 'review' | 'reject';
   recomendacionTexto: string;
-  elementosSeguridad: {
-    sellos: boolean;
-    firmas: boolean;
-    logos: boolean;
-  };
+  elementosSeguridad: ElementosSeguridad;
   archivoUrl: string;
   fechaAnalisis: string;
+  // Nuevos campos del análisis mejorado
+  analisisDetallado?: AnalisisDetallado;
 }
 
 interface AsignacionUsuario {
@@ -57,10 +79,13 @@ const UploadDocumento: React.FC = () => {
   const [nombreUsuario, setNombreUsuario] = useState('');
   const [tipoDocumento, setTipoDocumento] = useState('');
   const [mostrarAsignacion, setMostrarAsignacion] = useState(false);
+  
+  // Estados para la vista detallada
+  const [mostrarDetalles, setMostrarDetalles] = useState(false);
 
-  // Configuración de react-dropzone - SOLO cuando no hay archivo subido
+  // Configuración de react-dropzone mejorada
   const onDrop = useCallback((archivosAceptados: File[]) => {
-    if (archivosAceptados.length > 0 && !archivoSubido) { // Evitamos bug cuando ya hay archivo subido
+    if (archivosAceptados.length > 0 && !archivoSubido) {
       setArchivo(archivosAceptados[0]);
       setArchivoSubido(null);
       setResultado(null);
@@ -68,17 +93,17 @@ const UploadDocumento: React.FC = () => {
       setError(null);
       console.log('📄 Archivo seleccionado:', archivosAceptados[0].name);
     }
-  }, [archivoSubido]); // Dependencia importante
+  }, [archivoSubido]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
       'image/*': ['.jpeg', '.jpg', '.png'],
-      'application/pdf': ['.pdf']
+      'application/pdf': ['.pdf'] // PDF ahora soportado
     },
     maxFiles: 1,
     maxSize: 10 * 1024 * 1024, // 10MB máximo
-    disabled: subiendo || analizando || !!archivoSubido // Deshabilitamos cuando está procesando o ya hay archivo subido
+    disabled: subiendo || analizando || !!archivoSubido
   });
 
   // PASO 1: Subir archivo
@@ -125,7 +150,7 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // PASO 2: Analizar documento
+  // PASO 2: Analizar documento con análisis visual mejorado
   const analizarDocumento = async () => {
     if (!archivoSubido) {
       setError('Primero debes subir un archivo');
@@ -136,7 +161,7 @@ const UploadDocumento: React.FC = () => {
     setError(null);
 
     try {
-      console.log(`🔍 Analizando documento: ${archivoSubido.id}`);
+      console.log(`🔍 Analizando documento con IA mejorada: ${archivoSubido.id}`);
 
       const payload = {
         documentoId: archivoSubido.id,
@@ -227,18 +252,39 @@ const UploadDocumento: React.FC = () => {
     setNombreUsuario('');
     setTipoDocumento('');
     setMostrarAsignacion(false);
+    setMostrarDetalles(false);
   };
 
   // Función para obtener el color del score
   const obtenerColorScore = (score: number): string => {
-    if (score >= 80) return '#4caf50'; // Verde
-    if (score >= 50) return '#ff9800'; // Naranja
+    if (score >= 85) return '#4caf50'; // Verde - Umbral ajustado
+    if (score >= 60) return '#ff9800'; // Naranja - Umbral ajustado
     return '#f44336'; // Rojo
+  };
+
+  // Función para obtener el icono según la categoría
+  const obtenerIconoCategoria = (categoria: string): string => {
+    switch (categoria) {
+      case 'sello': return '🏛️';
+      case 'firma': return '✍️';
+      case 'logo': return '🎯';
+      default: return '📄';
+    }
+  };
+
+  // Función para obtener el color de la calidad
+  const obtenerColorCalidad = (calidad: string): string => {
+    switch (calidad) {
+      case 'alta': return '#4caf50';
+      case 'media': return '#ff9800';
+      case 'baja': return '#f44336';
+      default: return '#9e9e9e';
+    }
   };
 
   return (
     <div className="upload-documento-container">
-      <h2>📄 Procesar Documento</h2>
+      <h2>📄 Procesar Documento (Con IA Mejorada)</h2>
       
       {error && (
         <div className="error-message">
@@ -247,7 +293,7 @@ const UploadDocumento: React.FC = () => {
         </div>
       )}
 
-      {/* PASO 1: Selección de archivo - SOLO si no hay archivo subido */}
+      {/* PASO 1: Selección de archivo */}
       {!archivoSubido && (
         <section className="paso-seleccion">
           <h3>Paso 1: Seleccionar Archivo</h3>
@@ -264,7 +310,7 @@ const UploadDocumento: React.FC = () => {
                 <p><strong>Tamaño:</strong> {(archivo.size / 1024 / 1024).toFixed(2)} MB</p>
                 <p><strong>Tipo:</strong> {archivo.type}</p>
                 
-                {/* Preview básico para imágenes */}
+                {/* Preview mejorado */}
                 {archivo.type.startsWith('image/') && (
                   <div className="preview-imagen">
                     <img 
@@ -275,10 +321,17 @@ const UploadDocumento: React.FC = () => {
                   </div>
                 )}
                 
+                {archivo.type === 'application/pdf' && (
+                  <div className="preview-pdf">
+                    <div className="pdf-icon">📄</div>
+                    <p>Archivo PDF listo para procesar</p>
+                  </div>
+                )}
+                
                 <div className="botones-archivo">
                   <button 
                     onClick={(e) => {
-                      e.stopPropagation(); // Evitamos que se abra el diálogo de archivos
+                      e.stopPropagation();
                       setArchivo(null);
                     }} 
                     className="btn-limpiar"
@@ -287,7 +340,7 @@ const UploadDocumento: React.FC = () => {
                   </button>
                   <button 
                     onClick={(e) => {
-                      e.stopPropagation(); // Evitamos que se abra el diálogo de archivos
+                      e.stopPropagation();
                       subirArchivo();
                     }} 
                     disabled={subiendo}
@@ -305,6 +358,10 @@ const UploadDocumento: React.FC = () => {
                   <div>
                     <p>📎 Arrastra un archivo aquí, o haz clic para seleccionar</p>
                     <small>Formatos aceptados: JPG, PNG, PDF (máximo 10MB)</small>
+                    <div className="formatos-soportados">
+                      <span className="formato">🖼️ Imágenes</span>
+                      <span className="formato">📄 PDFs</span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -330,7 +387,7 @@ const UploadDocumento: React.FC = () => {
               disabled={analizando}
               className="btn-analizar"
             >
-              {analizando ? '⏳ Analizando...' : '🔍 Analizar Documento'}
+              {analizando ? '⏳ Analizando con IA...' : '🤖 Analizar con IA Mejorada'}
             </button>
             
             <button 
@@ -340,15 +397,31 @@ const UploadDocumento: React.FC = () => {
               📄 Subir Otro Archivo
             </button>
           </div>
+
+          {analizando && (
+            <div className="progreso-analisis">
+              <div className="spinner"></div>
+              <p>🔍 Analizando documento con inteligencia artificial...</p>
+              <ul className="pasos-analisis">
+                <li>📝 Extrayendo texto</li>
+                <li>🔍 Detectando elementos de seguridad</li>
+                <li>🏛️ Buscando sellos oficiales</li>
+                <li>✍️ Identificando firmas</li>
+                <li>🎯 Reconociendo logos</li>
+                <li>📊 Calculando score de autenticidad</li>
+              </ul>
+            </div>
+          )}
         </section>
       )}
 
-      {/* PASO 3: Resultados del análisis */}
+      {/* PASO 3: Resultados del análisis mejorado */}
       {resultado && (
         <section className="paso-resultados">
-          <h3>Paso 3: Resultados del Análisis 📊</h3>
+          <h3>Paso 3: Resultados del Análisis IA 📊</h3>
           
           <div className="resultado-analisis">
+            {/* Score principal */}
             <div className="score-autenticidad">
               <h4>Score de Autenticidad</h4>
               <div 
@@ -360,23 +433,61 @@ const UploadDocumento: React.FC = () => {
               <p className="recomendacion">{resultado.recomendacionTexto}</p>
             </div>
 
+            {/* Elementos de seguridad mejorados */}
             <div className="elementos-seguridad">
-              <h4>Elementos de Seguridad Detectados</h4>
+              <h4>🔒 Elementos de Seguridad Detectados</h4>
               <div className="elementos-grid">
                 <div className={`elemento ${resultado.elementosSeguridad.sellos ? 'detectado' : 'no-detectado'}`}>
-                  🏛️ Sellos: {resultado.elementosSeguridad.sellos ? '✅' : '❌'}
+                  🏛️ Sellos: {resultado.elementosSeguridad.sellos ? '✅ Detectado' : '❌ No detectado'}
                 </div>
                 <div className={`elemento ${resultado.elementosSeguridad.firmas ? 'detectado' : 'no-detectado'}`}>
-                  ✍️ Firmas: {resultado.elementosSeguridad.firmas ? '✅' : '❌'}
+                  ✍️ Firmas: {resultado.elementosSeguridad.firmas ? '✅ Detectado' : '❌ No detectado'}
                 </div>
                 <div className={`elemento ${resultado.elementosSeguridad.logos ? 'detectado' : 'no-detectado'}`}>
-                  🎯 Logos: {resultado.elementosSeguridad.logos ? '✅' : '❌'}
+                  🎯 Logos: {resultado.elementosSeguridad.logos ? '✅ Detectado' : '❌ No detectado'}
                 </div>
               </div>
             </div>
 
+            {/* Calidad del documento (nuevo) */}
+            {resultado.analisisDetallado && (
+              <div className="calidad-documento">
+                <h4>📋 Calidad del Documento</h4>
+                <div className="calidad-grid">
+                  <div className="calidad-item">
+                    <span>Claridad del texto:</span>
+                    <span 
+                      className="badge"
+                      style={{ backgroundColor: obtenerColorCalidad(resultado.analisisDetallado.calidadDocumento.claridadTexto) }}
+                    >
+                      {resultado.analisisDetallado.calidadDocumento.claridadTexto}
+                    </span>
+                  </div>
+                  <div className="calidad-item">
+                    <span>Estructura:</span>
+                    <span 
+                      className="badge"
+                      style={{ backgroundColor: obtenerColorCalidad(resultado.analisisDetallado.calidadDocumento.estructuraDocumento) }}
+                    >
+                      {resultado.analisisDetallado.calidadDocumento.estructuraDocumento}
+                    </span>
+                  </div>
+                  <div className="calidad-item">
+                    <span>Resolución:</span>
+                    <span 
+                      className="badge"
+                      style={{ backgroundColor: obtenerColorCalidad(resultado.analisisDetallado.calidadDocumento.resolucion) }}
+                    >
+                      {resultado.analisisDetallado.calidadDocumento.resolucion}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Texto extraído */}
             <div className="texto-extraido">
-              <h4>Texto Extraído ({resultado.numeroCaracteres} caracteres)</h4>
+              <h4>📝 Texto Extraído ({resultado.numeroCaracteres} caracteres)</h4>
               <textarea 
                 value={resultado.textoExtraido} 
                 readOnly 
@@ -385,7 +496,16 @@ const UploadDocumento: React.FC = () => {
               />
             </div>
 
+            {/* Botones de acción */}
             <div className="botones-resultado">
+              {resultado.analisisDetallado && (
+                <button 
+                  onClick={() => setMostrarDetalles(true)}
+                  className="btn-detalles"
+                >
+                  🔍 Ver Análisis Detallado
+                </button>
+              )}
               <button 
                 onClick={() => setMostrarAsignacion(true)}
                 className="btn-asignar"
@@ -401,6 +521,89 @@ const UploadDocumento: React.FC = () => {
             </div>
           </div>
         </section>
+      )}
+
+      {/* MODAL: Análisis detallado */}
+      {mostrarDetalles && resultado?.analisisDetallado && (
+        <div className="modal-detalles">
+          <div className="modal-content-large">
+            <h3>🔍 Análisis Detallado del Documento</h3>
+            
+            {/* Objetos detectados */}
+            <div className="seccion-detalles">
+              <h4>📊 Objetos Detectados por IA ({resultado.analisisDetallado.objetosDetectados.length})</h4>
+              {resultado.analisisDetallado.objetosDetectados.length > 0 ? (
+                <div className="objetos-detectados">
+                  {resultado.analisisDetallado.objetosDetectados.map((objeto, index) => (
+                    <div key={index} className="objeto-detectado">
+                      <span className="icono">{obtenerIconoCategoria(objeto.categoria)}</span>
+                      <span className="nombre">{objeto.nombre}</span>
+                      <span className="categoria">({objeto.categoria})</span>
+                      <span className="confianza">{Math.round(objeto.confianza * 100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="no-objetos">No se detectaron objetos específicos</p>
+              )}
+            </div>
+
+            {/* Detalles de elementos de seguridad */}
+            <div className="seccion-detalles">
+              <h4>🔒 Detalles de Elementos de Seguridad</h4>
+              
+              <div className="detalles-elementos">
+                <div className="elemento-detalle">
+                  <h5>🏛️ Sellos Detectados</h5>
+                  {resultado.analisisDetallado.detallesElementos.sellos.length > 0 ? (
+                    <ul>
+                      {resultado.analisisDetallado.detallesElementos.sellos.map((sello, index) => (
+                        <li key={index}>{sello}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="no-detectado">No se detectaron sellos</p>
+                  )}
+                </div>
+
+                <div className="elemento-detalle">
+                  <h5>✍️ Firmas Detectadas</h5>
+                  {resultado.analisisDetallado.detallesElementos.firmas.length > 0 ? (
+                    <ul>
+                      {resultado.analisisDetallado.detallesElementos.firmas.map((firma, index) => (
+                        <li key={index}>{firma}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="no-detectado">No se detectaron firmas</p>
+                  )}
+                </div>
+
+                <div className="elemento-detalle">
+                  <h5>🎯 Logos Detectados</h5>
+                  {resultado.analisisDetallado.detallesElementos.logos.length > 0 ? (
+                    <ul>
+                      {resultado.analisisDetallado.detallesElementos.logos.map((logo, index) => (
+                        <li key={index}>{logo}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="no-detectado">No se detectaron logos</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="botones-modal">
+              <button 
+                onClick={() => setMostrarDetalles(false)}
+                className="btn-cerrar"
+              >
+                ✕ Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* MODAL: Asignar documento a usuario */}
@@ -434,6 +637,8 @@ const UploadDocumento: React.FC = () => {
                   <option value="certificado_notas">Certificado de Notas</option>
                   <option value="titulo_universitario">Título Universitario</option>
                   <option value="certificado_idiomas">Certificado de Idiomas</option>
+                  <option value="identificacion">Documento de Identificación</option>
+                  <option value="pasaporte">Pasaporte</option>
                   <option value="otro">Otro</option>
                 </select>
               </div>

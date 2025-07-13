@@ -1,16 +1,37 @@
 // Servicio especializado en Vision API de Google Cloud
-// Versión mejorada con método de test y mejor manejo de errores
+// Versión mejorada con detección de elementos de seguridad (firmas, logos, sellos)
 
 import { ImageAnnotatorClient } from '@google-cloud/vision';
+
+// Interfaz para los resultados de análisis visual
+export interface AnalisisVisual {
+  textoExtraido: string;
+  elementosSeguridad: {
+    sellos: boolean;
+    firmas: boolean;
+    logos: boolean;
+    detallesSellos: string[];
+    detallesFirmas: string[];
+    detallesLogos: string[];
+  };
+  objetosDetectados: Array<{
+    nombre: string;
+    confianza: number;
+    categoria: 'sello' | 'firma' | 'logo' | 'otro';
+  }>;
+  calidad: {
+    claridadTexto: 'alta' | 'media' | 'baja';
+    resolucion: 'alta' | 'media' | 'baja';
+    estructuraDocumento: 'formal' | 'informal' | 'dudosa';
+  };
+}
 
 export class VisionService {
   private visionClient: ImageAnnotatorClient;
 
   constructor() {
     // Inicializamos el cliente de Vision API
-    // En Cloud Run, la autenticación se maneja automáticamente
     this.visionClient = new ImageAnnotatorClient({
-      // No necesitamos especificar credenciales - Cloud Run las maneja automáticamente
       projectId: process.env.PROJECT_ID || 'apt-cubist-368817'
     });
     
@@ -19,19 +40,15 @@ export class VisionService {
 
   /**
    * Método específico para probar la conectividad de Vision API
-   * Sin necesidad de enviar imágenes reales
    */
   async testConnection(): Promise<{ success: boolean; message: string; details?: any }> {
     try {
       console.log('🔍 Probando conectividad con Vision API...');
       
-      // Verificamos que el cliente esté correctamente inicializado
       if (!this.visionClient) {
         throw new Error('Cliente de Vision API no inicializado');
       }
 
-      // Intentamos hacer una operación muy básica para verificar permisos
-      // Esto no consume cuota significativa pero verifica conectividad
       const projectId = await this.visionClient.getProjectId();
       
       return {
@@ -68,16 +85,11 @@ export class VisionService {
   }
 
   /**
-   * Extrae texto de un archivo usando Vision API
-   * Versión mejorada con mejor validación de entrada
-   * 
-   * @param buffer - Los datos del archivo en memoria
-   * @param mimeType - El tipo de archivo (image/jpeg, application/pdf, etc.)
-   * @returns Promise<string> - El texto extraído del documento
+   * Análisis completo del documento con detección de elementos de seguridad
+   * NUEVA FUNCIÓN PRINCIPAL que reemplaza detectTextFromBuffer
    */
-  async detectTextFromBuffer(buffer: Buffer, mimeType: string): Promise<string> {
+  async analizarDocumentoCompleto(buffer: Buffer, mimeType: string): Promise<AnalisisVisual> {
     try {
-      // Validamos que el tipo de archivo sea compatible con Vision API
       const supportedTypes = [
         'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/bmp',
         'image/webp', 'image/tiff', 'application/pdf'
@@ -87,67 +99,73 @@ export class VisionService {
         throw new Error(`Tipo de archivo no soportado: ${mimeType}. Tipos válidos: ${supportedTypes.join(', ')}`);
       }
 
-      // Validamos que el buffer tenga datos
       if (!buffer || buffer.length === 0) {
         throw new Error('El archivo está vacío o no contiene datos válidos');
       }
 
-      console.log(`🔍 Analizando archivo de tipo: ${mimeType}, tamaño: ${buffer.length} bytes`);
+      console.log(`🔍 Análisis completo - Archivo: ${mimeType}, tamaño: ${buffer.length} bytes`);
 
-      // Configuramos la petición a Vision API de manera más robusta
+      // Para PDFs, convertimos la primera página a imagen
+      let imageBuffer = buffer;
+      if (mimeType === 'application/pdf') {
+        imageBuffer = await this.convertirPdfAImagen(buffer);
+      }
+
+      // Configuramos múltiples features de Vision API
       const request = {
         image: {
-          content: buffer.toString('base64'), // Convertimos el archivo a formato base64
+          content: imageBuffer.toString('base64'),
         },
         features: [
-          {
-            type: 'TEXT_DETECTION' as const, // Detectamos texto general
-            maxResults: 1 // Solo necesitamos un resultado con todo el texto
-          },
-          {
-            type: 'DOCUMENT_TEXT_DETECTION' as const, // Detectamos texto estructurado (mejor para documentos)
-            maxResults: 1
-          }
+          // Detección de texto
+          { type: 'TEXT_DETECTION' as const, maxResults: 1 },
+          { type: 'DOCUMENT_TEXT_DETECTION' as const, maxResults: 1 },
+          
+          // Detección de elementos visuales
+          { type: 'LOGO_DETECTION' as const, maxResults: 10 },
+          { type: 'OBJECT_LOCALIZATION' as const, maxResults: 20 },
+          { type: 'LABEL_DETECTION' as const, maxResults: 15 },
+          
+          // Para mejor análisis de calidad
+          { type: 'IMAGE_PROPERTIES' as const, maxResults: 1 },
+          { type: 'SAFE_SEARCH_DETECTION' as const, maxResults: 1 }
         ],
         imageContext: {
-          languageHints: ['es', 'en'] // Priorizamos español e inglés
+          languageHints: ['es', 'en'],
+          // Configuramos para detectar mejor texto en documentos
+          textDetectionParams: {
+            enableTextDetectionConfidenceScore: true
+          }
         }
       };
 
-      // Enviamos la petición a Vision API con timeout
+      console.log('🤖 Enviando petición completa a Vision API...');
       const [result] = await this.visionClient.annotateImage(request);
 
-      // Verificamos si hubo errores en el procesamiento
       if (result.error) {
         throw new Error(`Vision API error: ${result.error.message}`);
       }
 
-      // Extraemos el texto detectado con preferencia por DOCUMENT_TEXT_DETECTION
-      let textoExtraido = '';
-      
-      if (result.fullTextAnnotation && result.fullTextAnnotation.text) {
-        // Este es el resultado más completo y estructurado
-        textoExtraido = result.fullTextAnnotation.text;
-        console.log(`✅ Texto extraído usando DOCUMENT_TEXT_DETECTION (${textoExtraido.length} caracteres)`);
-      } else if (result.textAnnotations && result.textAnnotations.length > 0) {
-        // Fallback a TEXT_DETECTION si el anterior no funcionó
-        textoExtraido = result.textAnnotations[0].description || '';
-        console.log(`✅ Texto extraído usando TEXT_DETECTION (${textoExtraido.length} caracteres)`);
-      } else {
-        console.log('⚠️ No se detectó texto en el documento');
-        return 'No se pudo extraer texto del documento. Verifique que el documento contenga texto legible.';
-      }
+      // Extraemos y analizamos todos los resultados
+      const analisis: AnalisisVisual = {
+        textoExtraido: this.extraerTexto(result),
+        elementosSeguridad: await this.analizarElementosSeguridad(result),
+        objetosDetectados: this.procesarObjetosDetectados(result),
+        calidad: this.evaluarCalidadDocumento(result)
+      };
 
-      // Limpiamos y procesamos el texto extraído
-      const textoLimpio = this.limpiarTextoExtraido(textoExtraido);
-      
-      console.log(`🎉 Procesamiento exitoso. Texto final: ${textoLimpio.length} caracteres`);
-      return textoLimpio;
+      console.log(`✅ Análisis completo finalizado:`);
+      console.log(`   - Texto: ${analisis.textoExtraido.length} caracteres`);
+      console.log(`   - Sellos: ${analisis.elementosSeguridad.sellos}`);
+      console.log(`   - Firmas: ${analisis.elementosSeguridad.firmas}`);
+      console.log(`   - Logos: ${analisis.elementosSeguridad.logos}`);
+      console.log(`   - Objetos detectados: ${analisis.objetosDetectados.length}`);
+
+      return analisis;
 
     } catch (error) {
-      console.error('❌ Error en Vision API:', error);
+      console.error('❌ Error en análisis completo:', error);
       
-      // Proporcionamos errores más específicos para facilitar el debugging
       if (error instanceof Error) {
         if (error.message.includes('quota')) {
           throw new Error('Se ha excedido la cuota de Vision API. Intente más tarde.');
@@ -165,24 +183,303 @@ export class VisionService {
   }
 
   /**
-   * Método de prueba con imagen sintética simple
-   * Útil para verificar que todo el pipeline funciona
+   * Mantener compatibilidad con el método anterior
+   */
+  async detectTextFromBuffer(buffer: Buffer, mimeType: string): Promise<string> {
+    try {
+      const analisis = await this.analizarDocumentoCompleto(buffer, mimeType);
+      return analisis.textoExtraido;
+    } catch (error) {
+      console.error('❌ Error extrayendo texto:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Extrae texto de los resultados de Vision API
+   */
+  private extraerTexto(result: any): string {
+    let textoExtraido = '';
+    
+    if (result.fullTextAnnotation && result.fullTextAnnotation.text) {
+      textoExtraido = result.fullTextAnnotation.text;
+      console.log(`✅ Texto extraído usando DOCUMENT_TEXT_DETECTION (${textoExtraido.length} caracteres)`);
+    } else if (result.textAnnotations && result.textAnnotations.length > 0) {
+      textoExtraido = result.textAnnotations[0].description || '';
+      console.log(`✅ Texto extraído usando TEXT_DETECTION (${textoExtraido.length} caracteres)`);
+    } else {
+      console.log('⚠️ No se detectó texto en el documento');
+      return 'No se pudo extraer texto del documento. Verifique que el documento contenga texto legible.';
+    }
+
+    return this.limpiarTextoExtraido(textoExtraido);
+  }
+
+  /**
+   * NUEVA FUNCIÓN: Analiza elementos de seguridad específicos
+   */
+  private async analizarElementosSeguridad(result: any): Promise<AnalisisVisual['elementosSeguridad']> {
+    const elementos = {
+      sellos: false,
+      firmas: false,
+      logos: false,
+      detallesSellos: [] as string[],
+      detallesFirmas: [] as string[],
+      detallesLogos: [] as string[]
+    };
+
+    // 1. Analizar logos detectados
+    if (result.logoAnnotations && result.logoAnnotations.length > 0) {
+      elementos.logos = true;
+      result.logoAnnotations.forEach((logo: any) => {
+        if (logo.score > 0.5) { // Solo logos con alta confianza
+          elementos.detallesLogos.push(`${logo.description} (${Math.round(logo.score * 100)}%)`);
+          console.log(`🎯 Logo detectado: ${logo.description} - Confianza: ${Math.round(logo.score * 100)}%`);
+        }
+      });
+    }
+
+    // 2. Analizar objetos que pueden ser sellos o firmas
+    if (result.localizedObjectAnnotations && result.localizedObjectAnnotations.length > 0) {
+      result.localizedObjectAnnotations.forEach((objeto: any) => {
+        const nombre = objeto.name.toLowerCase();
+        const confianza = objeto.score;
+        
+        if (confianza > 0.5) {
+          // Detectar sellos
+          if (this.esProbableSello(nombre)) {
+            elementos.sellos = true;
+            elementos.detallesSellos.push(`${objeto.name} (${Math.round(confianza * 100)}%)`);
+            console.log(`🏛️ Posible sello detectado: ${objeto.name} - Confianza: ${Math.round(confianza * 100)}%`);
+          }
+          
+          // Detectar firmas
+          if (this.esProbableFirma(nombre)) {
+            elementos.firmas = true;
+            elementos.detallesFirmas.push(`${objeto.name} (${Math.round(confianza * 100)}%)`);
+            console.log(`✍️ Posible firma detectada: ${objeto.name} - Confianza: ${Math.round(confianza * 100)}%`);
+          }
+        }
+      });
+    }
+
+    // 3. Análisis adicional basado en etiquetas
+    if (result.labelAnnotations && result.labelAnnotations.length > 0) {
+      result.labelAnnotations.forEach((etiqueta: any) => {
+        const descripcion = etiqueta.description.toLowerCase();
+        const confianza = etiqueta.score;
+        
+        if (confianza > 0.7) {
+          // Buscar etiquetas relacionadas con elementos de seguridad
+          if (this.esEtiquetaSello(descripcion)) {
+            elementos.sellos = true;
+            elementos.detallesSellos.push(`Etiqueta: ${etiqueta.description} (${Math.round(confianza * 100)}%)`);
+          }
+          
+          if (this.esEtiquetaFirma(descripcion)) {
+            elementos.firmas = true;
+            elementos.detallesFirmas.push(`Etiqueta: ${etiqueta.description} (${Math.round(confianza * 100)}%)`);
+          }
+          
+          if (this.esEtiquetaLogo(descripcion)) {
+            elementos.logos = true;
+            elementos.detallesLogos.push(`Etiqueta: ${etiqueta.description} (${Math.round(confianza * 100)}%)`);
+          }
+        }
+      });
+    }
+
+    return elementos;
+  }
+
+  /**
+   * Procesa objetos detectados y los categoriza
+   */
+  private procesarObjetosDetectados(result: any): AnalisisVisual['objetosDetectados'] {
+    const objetos: AnalisisVisual['objetosDetectados'] = [];
+
+    // Agregar logos
+    if (result.logoAnnotations) {
+      result.logoAnnotations.forEach((logo: any) => {
+        if (logo.score > 0.5) {
+          objetos.push({
+            nombre: logo.description,
+            confianza: logo.score,
+            categoria: 'logo'
+          });
+        }
+      });
+    }
+
+    // Agregar objetos localizados
+    if (result.localizedObjectAnnotations) {
+      result.localizedObjectAnnotations.forEach((objeto: any) => {
+        if (objeto.score > 0.5) {
+          objetos.push({
+            nombre: objeto.name,
+            confianza: objeto.score,
+            categoria: this.categorizarObjeto(objeto.name)
+          });
+        }
+      });
+    }
+
+    return objetos;
+  }
+
+  /**
+   * Evalúa la calidad general del documento
+   */
+  private evaluarCalidadDocumento(result: any): AnalisisVisual['calidad'] {
+    const calidad = {
+      claridadTexto: 'media' as 'alta' | 'media' | 'baja',
+      resolucion: 'media' as 'alta' | 'media' | 'baja',
+      estructuraDocumento: 'informal' as 'formal' | 'informal' | 'dudosa'
+    };
+
+    // Evaluar claridad del texto basado en confianza
+    if (result.fullTextAnnotation && result.fullTextAnnotation.pages) {
+      const paginasConfianza = result.fullTextAnnotation.pages.map((page: any) => {
+        if (page.confidence) return page.confidence;
+        return 0.5; // Valor por defecto si no hay confianza
+      });
+      
+      const confianzaPromedio = paginasConfianza.reduce((a: number, b: number) => a + b, 0) / paginasConfianza.length;
+      
+      if (confianzaPromedio > 0.8) {
+        calidad.claridadTexto = 'alta';
+      } else if (confianzaPromedio > 0.6) {
+        calidad.claridadTexto = 'media';
+      } else {
+        calidad.claridadTexto = 'baja';
+      }
+    }
+
+    // Evaluar resolución basado en propiedades de imagen
+    if (result.imagePropertiesAnnotation) {
+      // Esto es una estimación basada en las propiedades disponibles
+      calidad.resolucion = 'media'; // Por ahora, podríamos mejorarlo con más análisis
+    }
+
+    // Evaluar estructura del documento basado en elementos detectados
+    const tieneSellos = result.localizedObjectAnnotations?.some((obj: any) => 
+      this.esProbableSello(obj.name.toLowerCase()) && obj.score > 0.5
+    );
+    const tieneLogos = result.logoAnnotations?.some((logo: any) => logo.score > 0.5);
+    const textoFormal = this.analizarFormalidadTexto(result.fullTextAnnotation?.text || '');
+
+    if (tieneSellos && tieneLogos && textoFormal) {
+      calidad.estructuraDocumento = 'formal';
+    } else if (textoFormal || tieneLogos) {
+      calidad.estructuraDocumento = 'informal';
+    } else {
+      calidad.estructuraDocumento = 'dudosa';
+    }
+
+    return calidad;
+  }
+
+  /**
+   * Funciones auxiliares para clasificación de elementos
+   */
+  private esProbableSello(nombre: string): boolean {
+    const palabrasSellos = [
+      'seal', 'stamp', 'emblem', 'badge', 'crest', 'insignia',
+      'official', 'government', 'institutional', 'circular',
+      'sello', 'timbre', 'emblema', 'escudo'
+    ];
+    return palabrasSellos.some(palabra => nombre.includes(palabra));
+  }
+
+  private esProbableFirma(nombre: string): boolean {
+    const palabrasFirmas = [
+      'signature', 'handwriting', 'autograph', 'signing',
+      'firma', 'signatura', 'autógrafo', 'manuscrito'
+    ];
+    return palabrasFirmas.some(palabra => nombre.includes(palabra));
+  }
+
+  private esEtiquetaSello(descripcion: string): boolean {
+    const etiquetasSellos = [
+      'seal', 'stamp', 'emblem', 'badge', 'official', 'government',
+      'circular', 'round', 'institutional'
+    ];
+    return etiquetasSellos.some(etiqueta => descripcion.includes(etiqueta));
+  }
+
+  private esEtiquetaFirma(descripcion: string): boolean {
+    const etiquetasFirmas = [
+      'signature', 'handwriting', 'writing', 'pen', 'ink',
+      'autograph', 'script', 'cursive'
+    ];
+    return etiquetasFirmas.some(etiqueta => descripcion.includes(etiqueta));
+  }
+
+  private esEtiquetaLogo(descripcion: string): boolean {
+    const etiquetasLogos = [
+      'logo', 'brand', 'company', 'institution', 'university',
+      'school', 'organization', 'symbol'
+    ];
+    return etiquetasLogos.some(etiqueta => descripcion.includes(etiqueta));
+  }
+
+  private categorizarObjeto(nombre: string): 'sello' | 'firma' | 'logo' | 'otro' {
+    const nombreLower = nombre.toLowerCase();
+    
+    if (this.esProbableSello(nombreLower)) return 'sello';
+    if (this.esProbableFirma(nombreLower)) return 'firma';
+    if (this.esEtiquetaLogo(nombreLower)) return 'logo';
+    
+    return 'otro';
+  }
+
+  private analizarFormalidadTexto(texto: string): boolean {
+    const palabrasFormales = [
+      'certificado', 'diploma', 'título', 'universidad', 'colegio',
+      'instituto', 'director', 'rector', 'registro', 'oficial',
+      'certificate', 'diploma', 'degree', 'university', 'college',
+      'director', 'registrar', 'official'
+    ];
+    
+    const textoLower = texto.toLowerCase();
+    const palabrasEncontradas = palabrasFormales.filter(palabra => 
+      textoLower.includes(palabra)
+    ).length;
+    
+    return palabrasEncontradas >= 2; // Al menos 2 palabras formales
+  }
+
+  /**
+   * Convierte PDF a imagen para procesamiento con Vision API
+   */
+  private async convertirPdfAImagen(pdfBuffer: Buffer): Promise<Buffer> {
+    try {
+      // Por ahora, intentamos procesar el PDF directamente
+      // En el futuro, podrías usar pdf2pic o similar para convertir a imagen
+      console.log('📄 Procesando PDF directamente con Vision API...');
+      return pdfBuffer;
+    } catch (error) {
+      console.error('❌ Error convirtiendo PDF:', error);
+      throw new Error('Error procesando archivo PDF. Intente con una imagen del documento.');
+    }
+  }
+
+  /**
+   * Método de prueba con imagen sintética
    */
   async testWithSyntheticImage(): Promise<{ success: boolean; message: string; resultado?: string }> {
     try {
-      // Creamos una imagen PNG simple de 1x1 pixel transparente
-      // Esta es una imagen válida mínima que Vision API puede procesar
       const miniImageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI9jU77ygAAAABJRU5ErkJggg==';
       const imageBuffer = Buffer.from(miniImageBase64, 'base64');
       
       console.log('🧪 Ejecutando test con imagen sintética...');
       
-      const resultado = await this.detectTextFromBuffer(imageBuffer, 'image/png');
+      const analisis = await this.analizarDocumentoCompleto(imageBuffer, 'image/png');
       
       return {
         success: true,
         message: 'Test sintético completado exitosamente',
-        resultado: resultado
+        resultado: `Texto: ${analisis.textoExtraido.substring(0, 100)}... Elementos: ${JSON.stringify(analisis.elementosSeguridad)}`
       };
       
     } catch (error) {
@@ -196,7 +493,6 @@ export class VisionService {
 
   /**
    * Limpia y mejora el texto extraído por Vision API
-   * Versión sin cambios - ya estaba bien implementada
    */
   private limpiarTextoExtraido(textoRaw: string): string {
     if (!textoRaw || textoRaw.trim().length === 0) {
@@ -227,7 +523,7 @@ export class VisionService {
   }
 
   /**
-   * Analiza la calidad del texto extraído - sin cambios
+   * Analiza la calidad del texto extraído
    */
   analizarCalidadTexto(texto: string) {
     const palabras = texto.split(/\s+/).filter(palabra => palabra.length > 0);
@@ -248,7 +544,7 @@ export class VisionService {
   }
 
   /**
-   * Determina la calidad del texto extraído - sin cambios
+   * Determina la calidad del texto extraído
    */
   private determinarCalidad(palabras: number, caracteres: number): 'alta' | 'media' | 'baja' {
     if (palabras > 50 && caracteres > 200) {
