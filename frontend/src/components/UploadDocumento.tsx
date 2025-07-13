@@ -1,8 +1,12 @@
+// UploadDocumento.tsx - Versión Final con Análisis Híbrido y Correcciones TypeScript
+// Este archivo maneja todo el flujo de subida y análisis de documentos con IA
+
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 
-// ==================== INTERFACES COMPLETAS ====================
+// ==================== DEFINICIÓN DE TIPOS E INTERFACES ====================
+// Estas interfaces definen exactamente qué datos esperamos del backend
 
 interface ArchivoSubido {
   id: string;
@@ -37,7 +41,7 @@ interface AnalisisDetallado {
   };
 }
 
-// NUEVAS INTERFACES para análisis híbrido
+// NUEVAS INTERFACES para el análisis híbrido (Vision API + Gemini)
 interface AnalisisHibrido {
   visionAPI: {
     usado: boolean;
@@ -54,6 +58,7 @@ interface AnalisisHibrido {
   };
 }
 
+// Esta interface contiene los detalles de cómo se calculó el score
 interface DetallesScoring {
   factorTexto: number;
   factorElementos: number;
@@ -63,6 +68,7 @@ interface DetallesScoring {
   razonamiento: string[];
 }
 
+// Resultado principal que recibimos del análisis
 interface ResultadoAnalisis {
   id: string;
   textoExtraido: string;
@@ -75,7 +81,7 @@ interface ResultadoAnalisis {
   fechaAnalisis: string;
   analisisDetallado?: AnalisisDetallado;
   
-  // NUEVOS CAMPOS para análisis híbrido
+  // CAMPOS OPCIONALES para análisis híbrido (el ? significa que pueden no existir)
   analisisHibrido?: AnalisisHibrido;
   detallesScoring?: DetallesScoring;
   esPDF?: boolean;
@@ -97,28 +103,28 @@ interface RevisionManual {
   fechaRevision: string;
 }
 
-// URL del backend
+// URL del backend - se toma de variables de entorno o usa la URL por defecto
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://docuvalle-backend-166554040569.us-central1.run.app';
 
 // ==================== COMPONENTE PRINCIPAL ====================
 
 const UploadDocumento: React.FC = () => {
-  // Estados principales
-  const [pasoActual, setPasoActual] = useState(1);
-  const [archivo, setArchivo] = useState<File | null>(null);
-  const [archivoSubido, setArchivoSubido] = useState<ArchivoSubido | null>(null);
-  const [resultado, setResultado] = useState<ResultadoAnalisis | null>(null);
-  const [asignacion, setAsignacion] = useState<AsignacionUsuario | null>(null);
-  const [revisionManual, setRevisionManual] = useState<RevisionManual | null>(null);
+  // ESTADOS PRINCIPALES - Controlan el flujo de la aplicación
+  const [pasoActual, setPasoActual] = useState(1); // 1=Seleccionar, 2=Subir, 3=Resultados, 4=Completado
+  const [archivo, setArchivo] = useState<File | null>(null); // Archivo seleccionado por el usuario
+  const [archivoSubido, setArchivoSubido] = useState<ArchivoSubido | null>(null); // Archivo ya subido al servidor
+  const [resultado, setResultado] = useState<ResultadoAnalisis | null>(null); // Resultados del análisis
+  const [asignacion, setAsignacion] = useState<AsignacionUsuario | null>(null); // Asignación a usuario
+  const [revisionManual, setRevisionManual] = useState<RevisionManual | null>(null); // Revisión manual del documento
   
-  // Estados de carga
+  // ESTADOS DE CARGA - Muestran spinners y bloquean botones mientras se procesa
   const [subiendo, setSubiendo] = useState(false);
   const [analizando, setAnalizando] = useState(false);
   const [asignando, setAsignando] = useState(false);
   const [marcandoManual, setMarcandoManual] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Estados de modales
+  // ESTADOS DE MODALES - Controlan qué ventanas modales están abiertas
   const [nombreUsuario, setNombreUsuario] = useState('');
   const [tipoDocumento, setTipoDocumento] = useState('');
   const [mostrarAsignacion, setMostrarAsignacion] = useState(false);
@@ -129,14 +135,17 @@ const UploadDocumento: React.FC = () => {
   const [mostrarAnalisisTecnico, setMostrarAnalisisTecnico] = useState(false);
   const [progresoProcesamiento, setProgresoProcesamiento] = useState<string[]>([]);
   
-  // Estados para marcado manual
+  // Estados para el marcado manual
   const [decisionManual, setDecisionManual] = useState<'accept' | 'review' | 'reject'>('review');
   const [comentarioRevisor, setComentarioRevisor] = useState('');
 
-  // ==================== CONFIGURACIÓN DROPZONE ====================
+  // ==================== CONFIGURACIÓN DE DROPZONE ====================
+  // Esta función se ejecuta cuando el usuario suelta archivos en la zona de drag & drop
 
   const onDrop = useCallback((archivosAceptados: File[]) => {
+    // Solo procesar si hay archivos y no hay uno ya subido
     if (archivosAceptados.length > 0 && !archivoSubido) {
+      // Reiniciar todo el estado para empezar de nuevo
       setArchivo(archivosAceptados[0]);
       setArchivoSubido(null);
       setResultado(null);
@@ -148,49 +157,63 @@ const UploadDocumento: React.FC = () => {
     }
   }, [archivoSubido]);
 
+  // Configuración de react-dropzone con restricciones de archivos
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'image/*': ['.jpeg', '.jpg', '.png'],
-      'application/pdf': ['.pdf']
+      'image/*': ['.jpeg', '.jpg', '.png'],     // Imágenes
+      'application/pdf': ['.pdf']               // PDFs
     },
-    maxFiles: 1,
-    maxSize: 10 * 1024 * 1024,
-    disabled: subiendo || analizando || !!archivoSubido
+    maxFiles: 1,                                // Solo un archivo a la vez
+    maxSize: 10 * 1024 * 1024,                 // Máximo 10MB
+    disabled: subiendo || analizando || !!archivoSubido // Deshabilitar si está procesando
   });
 
   // ==================== MÉTODOS DE PROCESAMIENTO ====================
 
-  // MÉTODO: Simular progreso para mejor UX
+  /**
+   * Simula el progreso del análisis para dar feedback visual al usuario
+   * Diferentes pasos dependiendo del tipo de archivo
+   */
   const simularProgresoAnalisis = async (esPDF: boolean) => {
-    const pasos = esPDF 
-      ? [
-          '📄 Preparando PDF para análisis híbrido...',
-          '🤖 Extrayendo texto con Google Vision API...',
-          '🖼️ Convirtiendo primera página a imagen...',
-          '🧠 Analizando elementos de seguridad con Gemini...',
-          '🔍 Detectando sellos y firmas...',
-          '🎯 Identificando logos institucionales...',
-          '📊 Combinando análisis Vision + Gemini...',
-          '⚖️ Calculando score de autenticidad híbrido...'
-        ]
-      : [
-          '🖼️ Preparando imagen para análisis...',
-          '🤖 Extrayendo texto con Google Vision API...',
-          '🧠 Analizando con Gemini Vision...',
-          '🔍 Detectando elementos de seguridad...',
-          '🎯 Identificando logos y sellos...',
-          '📊 Calculando score de autenticidad...'
-        ];
+    // Pasos específicos para PDFs (más complejos porque usan análisis híbrido)
+    const pasosPDF = [
+      '📄 Preparando PDF para análisis híbrido...',
+      '🤖 Extrayendo texto con Google Vision API...',
+      '🖼️ Convirtiendo primera página a imagen...',
+      '🧠 Analizando elementos de seguridad con Gemini...',
+      '🔍 Detectando sellos y firmas...',
+      '🎯 Identificando logos institucionales...',
+      '📊 Combinando análisis Vision + Gemini...',
+      '⚖️ Calculando score de autenticidad híbrido...'
+    ];
+    
+    // Pasos para imágenes (más directos)
+    const pasosImagen = [
+      '🖼️ Preparando imagen para análisis...',
+      '🤖 Extrayendo texto con Google Vision API...',
+      '🧠 Analizando con Gemini Vision...',
+      '🔍 Detectando elementos de seguridad...',
+      '🎯 Identificando logos y sellos...',
+      '📊 Calculando score de autenticidad...'
+    ];
 
+    const pasos = esPDF ? pasosPDF : pasosImagen;
+
+    // Simular cada paso con una pausa realista
     for (let i = 0; i < pasos.length; i++) {
       setProgresoProcesamiento(prev => [...prev, pasos[i]]);
+      // Pausa aleatoria entre 1-2.5 segundos para que parezca más realista
       await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1500));
     }
   };
 
-  // MÉTODO: Subir archivo
+  /**
+   * Subir archivo al servidor
+   * Primer paso del proceso: mover el archivo del navegador al servidor
+   */
   const subirArchivo = async () => {
+    // Validación básica
     if (!archivo) {
       setError('Por favor selecciona un archivo primero');
       return;
@@ -200,20 +223,23 @@ const UploadDocumento: React.FC = () => {
     setError(null);
 
     try {
+      // Crear FormData para enviar archivo
       const formData = new FormData();
       formData.append('archivo', archivo);
 
       console.log('📤 Subiendo archivo:', archivo.name, `(${(archivo.size / 1024 / 1024).toFixed(2)} MB)`);
 
+      // Enviar archivo al backend
       const respuesta = await axios.post(
         `${API_BASE_URL}/api/documents/upload`,
         formData,
         {
           headers: { 'Content-Type': 'multipart/form-data' },
-          timeout: 60000,
+          timeout: 60000, // 1 minuto de timeout
         }
       );
 
+      // Si todo salió bien, avanzar al siguiente paso
       setArchivoSubido(respuesta.data.documento);
       setPasoActual(2);
       console.log('✅ Archivo subido exitosamente:', respuesta.data.documento);
@@ -221,6 +247,7 @@ const UploadDocumento: React.FC = () => {
     } catch (error) {
       console.error('❌ Error subiendo archivo:', error);
       
+      // Manejo de errores específicos
       if (axios.isAxiosError(error)) {
         const errorData = error.response?.data;
         setError(errorData?.message || 'Error subiendo el archivo');
@@ -232,7 +259,10 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // MÉTODO: Analizar documento con IA híbrida
+  /**
+   * Analizar documento con IA híbrida (Vision API + Gemini)
+   * Este es el corazón del sistema - donde ocurre la magia de la IA
+   */
   const analizarDocumento = async () => {
     if (!archivoSubido) {
       setError('Primero debes subir un archivo');
@@ -241,9 +271,10 @@ const UploadDocumento: React.FC = () => {
 
     setAnalizando(true);
     setError(null);
-    setProgresoProcesamiento([]);
+    setProgresoProcesamiento([]); // Limpiar progreso anterior
 
     try {
+      // Preparar datos para enviar al backend
       const payload = {
         documentoId: archivoSubido.id,
         archivoUrl: archivoSubido.archivoUrl,
@@ -253,21 +284,22 @@ const UploadDocumento: React.FC = () => {
         userId: 'admin-usuario'
       };
 
-      // Simular progreso basado en el tipo de archivo
+      // Mostrar progreso visual mientras se procesa
       const esPDF = archivoSubido.tipoArchivo === 'application/pdf';
       await simularProgresoAnalisis(esPDF);
 
       console.log('🚀 Iniciando análisis híbrido del documento...');
 
+      // Enviar solicitud de análisis al backend (timeout más largo para IA)
       const respuesta = await axios.post(
         `${API_BASE_URL}/api/documents/analyze`,
         payload,
-        { timeout: 180000 } // 3 minutos para procesamiento híbrido
+        { timeout: 180000 } // 3 minutos - el análisis híbrido puede tomar tiempo
       );
 
       const resultadoAnalisis = respuesta.data.resultado;
       
-      // Enriquecer resultado con información del tipo de procesamiento
+      // Enriquecer resultado con información adicional
       const resultadoEnriquecido: ResultadoAnalisis = {
         ...resultadoAnalisis,
         esPDF: esPDF,
@@ -277,13 +309,14 @@ const UploadDocumento: React.FC = () => {
       };
 
       setResultado(resultadoEnriquecido);
-      setPasoActual(3);
+      setPasoActual(3); // Avanzar a mostrar resultados
       
       console.log('🎉 Documento analizado con IA híbrida:', resultadoEnriquecido);
 
     } catch (error) {
       console.error('❌ Error analizando documento:', error);
       
+      // Manejo de errores específicos
       if (axios.isAxiosError(error)) {
         const errorData = error.response?.data;
         setError(errorData?.message || 'Error analizando el documento con IA híbrida');
@@ -292,11 +325,14 @@ const UploadDocumento: React.FC = () => {
       }
     } finally {
       setAnalizando(false);
-      setProgresoProcesamiento([]);
+      setProgresoProcesamiento([]); // Limpiar progreso
     }
   };
 
-  // MÉTODO: Marcado manual del documento
+  /**
+   * Marcar documento manualmente
+   * Permite que un revisor humano override la decisión de la IA
+   */
   const marcarManualmente = async () => {
     if (!resultado) {
       setError('No hay documento para marcar');
@@ -336,7 +372,10 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // MÉTODO: Asignar documento a usuario
+  /**
+   * Asignar documento a un usuario específico
+   * Útil para tracking y organización
+   */
   const asignarDocumento = async () => {
     if (!resultado || !nombreUsuario.trim()) {
       setError('Completa el nombre del usuario');
@@ -359,7 +398,7 @@ const UploadDocumento: React.FC = () => {
 
       setAsignacion(respuesta.data.asignacion);
       setMostrarAsignacion(false);
-      setPasoActual(4);
+      setPasoActual(4); // Proceso completado
       console.log('✅ Documento asignado exitosamente:', respuesta.data.asignacion);
 
     } catch (error) {
@@ -376,8 +415,11 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
-  // MÉTODO: Reiniciar proceso
+  /**
+   * Reiniciar todo el proceso para procesar un nuevo documento
+   */
   const reiniciarProceso = () => {
+    // Limpiar todos los estados
     setArchivo(null);
     setArchivoSubido(null);
     setResultado(null);
@@ -397,11 +439,12 @@ const UploadDocumento: React.FC = () => {
   };
 
   // ==================== FUNCIONES AUXILIARES ====================
+  // Estas funciones nos ayudan con el formateo y estilizado
 
   const obtenerColorScore = (score: number): string => {
-    if (score >= 75) return '#4caf50';
-    if (score >= 45) return '#ff9800';
-    return '#f44336';
+    if (score >= 75) return '#4caf50';  // Verde para scores altos
+    if (score >= 45) return '#ff9800';  // Naranja para scores medios
+    return '#f44336';                   // Rojo para scores bajos
   };
 
   const obtenerIconoCategoria = (categoria: string): string => {
@@ -432,6 +475,7 @@ const UploadDocumento: React.FC = () => {
   };
 
   const obtenerClaseRecomendacion = (recomendacion: string): string => {
+    // Estas clases corresponden al CSS que tienes
     switch (recomendacion) {
       case 'accept': return 'recomendacion accept';
       case 'reject': return 'recomendacion reject';
@@ -442,12 +486,15 @@ const UploadDocumento: React.FC = () => {
 
   // ==================== COMPONENTES INTERNOS ====================
 
-  // COMPONENTE: Progreso de análisis detallado
+  /**
+   * Componente que muestra el progreso del análisis en tiempo real
+   */
   const ProgresoAnalisisDetallado = () => (
     <div className="progreso-analisis">
       <div className="spinner"></div>
       <h4>🔍 Analizando documento con IA híbrida...</h4>
       
+      {/* Lista de pasos completados */}
       <div className="pasos-analisis">
         {progresoProcesamiento.map((paso, index) => (
           <div key={index} className="paso-analisis-item">
@@ -456,6 +503,7 @@ const UploadDocumento: React.FC = () => {
         ))}
       </div>
       
+      {/* Indicadores de las tecnologías activas */}
       <div className="info-tecnologias" style={{ marginTop: '20px', display: 'flex', justifyContent: 'center', gap: '20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(33, 150, 243, 0.1)', padding: '8px 16px', borderRadius: '20px' }}>
           <span style={{ fontSize: '1.2rem' }}>🤖</span>
@@ -471,15 +519,32 @@ const UploadDocumento: React.FC = () => {
     </div>
   );
 
-  // COMPONENTE: Análisis técnico detallado
+  /**
+   * Componente que muestra el análisis técnico detallado
+   * CORREGIDO para manejar datos faltantes sin romper TypeScript
+   */
   const AnalisisTecnicoDetallado = () => {
+    // VERIFICACIÓN TEMPRANA: Si no tenemos los datos necesarios, mostrar mensaje informativo
     if (!resultado?.analisisHibrido || !resultado?.detallesScoring) {
       return (
         <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
           <p>Información técnica detallada no disponible para este análisis.</p>
+          {!resultado?.analisisHibrido && (
+            <p style={{ fontSize: '0.9rem', marginTop: '10px' }}>
+              • Análisis híbrido no realizado
+            </p>
+          )}
+          {!resultado?.detallesScoring && (
+            <p style={{ fontSize: '0.9rem', marginTop: '10px' }}>
+              • Detalles de scoring no disponibles
+            </p>
+          )}
         </div>
       );
     }
+
+    // AHORA TypeScript SABE que estos datos existen - no más errores de compilación
+    const { detallesScoring, analisisHibrido } = resultado;
 
     return (
       <div>
@@ -519,21 +584,21 @@ const UploadDocumento: React.FC = () => {
               <div style={{ display: 'grid', gap: '10px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
                   <span style={{ color: '#666' }}>Estado:</span>
-                  <span style={{ fontWeight: '600', color: resultado.analisisHibrido.visionAPI.usado ? '#4caf50' : '#f44336' }}>
-                    {resultado.analisisHibrido.visionAPI.usado ? 'Utilizado' : 'No utilizado'}
+                  <span style={{ fontWeight: '600', color: analisisHibrido.visionAPI.usado ? '#4caf50' : '#f44336' }}>
+                    {analisisHibrido.visionAPI.usado ? 'Utilizado' : 'No utilizado'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
                   <span style={{ color: '#666' }}>Objetos detectados:</span>
-                  <span style={{ fontWeight: '600' }}>{resultado.analisisHibrido.visionAPI.objetosDetectados}</span>
+                  <span style={{ fontWeight: '600' }}>{analisisHibrido.visionAPI.objetosDetectados}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
                   <span style={{ color: '#666' }}>Logos procesados:</span>
-                  <span style={{ fontWeight: '600' }}>{resultado.analisisHibrido.visionAPI.logosProcesados}</span>
+                  <span style={{ fontWeight: '600' }}>{analisisHibrido.visionAPI.logosProcesados}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
                   <span style={{ color: '#666' }}>Confianza texto:</span>
-                  <span style={{ fontWeight: '600', color: '#4caf50' }}>{resultado.analisisHibrido.visionAPI.confianzaTexto}%</span>
+                  <span style={{ fontWeight: '600', color: '#4caf50' }}>{analisisHibrido.visionAPI.confianzaTexto}%</span>
                 </div>
               </div>
             </div>
@@ -546,28 +611,28 @@ const UploadDocumento: React.FC = () => {
               <div style={{ display: 'grid', gap: '10px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
                   <span style={{ color: '#666' }}>Estado:</span>
-                  <span style={{ fontWeight: '600', color: resultado.analisisHibrido.geminiAPI.usado ? '#4caf50' : '#f44336' }}>
-                    {resultado.analisisHibrido.geminiAPI.usado ? 'Utilizado' : 'No disponible'}
+                  <span style={{ fontWeight: '600', color: analisisHibrido.geminiAPI.usado ? '#4caf50' : '#f44336' }}>
+                    {analisisHibrido.geminiAPI.usado ? 'Utilizado' : 'No disponible'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
                   <span style={{ color: '#666' }}>Score autenticidad:</span>
-                  <span style={{ fontWeight: '600' }}>{resultado.analisisHibrido.geminiAPI.scoreAutenticidad}%</span>
+                  <span style={{ fontWeight: '600' }}>{analisisHibrido.geminiAPI.scoreAutenticidad}%</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
                   <span style={{ color: '#666' }}>Tipo detectado:</span>
-                  <span style={{ fontWeight: '600' }}>{resultado.analisisHibrido.geminiAPI.tipoDocumento}</span>
+                  <span style={{ fontWeight: '600' }}>{analisisHibrido.geminiAPI.tipoDocumento}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
                   <span style={{ color: '#666' }}>Elementos sospechosos:</span>
-                  <span style={{ fontWeight: '600', color: resultado.analisisHibrido.geminiAPI.elementosSospechosos > 0 ? '#f44336' : '#4caf50' }}>
-                    {resultado.analisisHibrido.geminiAPI.elementosSospechosos}
+                  <span style={{ fontWeight: '600', color: analisisHibrido.geminiAPI.elementosSospechosos > 0 ? '#f44336' : '#4caf50' }}>
+                    {analisisHibrido.geminiAPI.elementosSospechosos}
                   </span>
                 </div>
-                {resultado.analisisHibrido.geminiAPI.institucionDetectada && (
+                {analisisHibrido.geminiAPI.institucionDetectada && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
                     <span style={{ color: '#666' }}>Institución:</span>
-                    <span style={{ fontWeight: '600', color: '#2196f3' }}>{resultado.analisisHibrido.geminiAPI.institucionDetectada}</span>
+                    <span style={{ fontWeight: '600', color: '#2196f3' }}>{analisisHibrido.geminiAPI.institucionDetectada}</span>
                   </div>
                 )}
               </div>
@@ -580,12 +645,12 @@ const UploadDocumento: React.FC = () => {
           <h4>📊 Desglose del Score de Autenticidad</h4>
           <div style={{ display: 'grid', gap: '15px' }}>
             
-            {/* Barras de progreso para cada factor */}
+            {/* Barras de progreso para cada factor - SEGURAS con valores por defecto */}
             {[
-              { label: 'Factor Texto', valor: resultado.detallesScoring.factorTexto, color: '#2196f3' },
-              { label: 'Factor Elementos', valor: resultado.detallesScoring.factorElementos, color: '#4caf50' },
-              { label: 'Factor Calidad', valor: resultado.detallesScoring.factorCalidad, color: '#ff9800' },
-              { label: 'Bonificaciones', valor: resultado.detallesScoring.bonificaciones, color: '#9c27b0' }
+              { label: 'Factor Texto', valor: detallesScoring.factorTexto || 0, color: '#2196f3' },
+              { label: 'Factor Elementos', valor: detallesScoring.factorElementos || 0, color: '#4caf50' },
+              { label: 'Factor Calidad', valor: detallesScoring.factorCalidad || 0, color: '#ff9800' },
+              { label: 'Bonificaciones', valor: detallesScoring.bonificaciones || 0, color: '#9c27b0' }
             ].map((factor, index) => (
               <div key={index} style={{ 
                 display: 'flex', 
@@ -627,40 +692,53 @@ const UploadDocumento: React.FC = () => {
               textAlign: 'center'
             }}>
               <span style={{ fontSize: '1.1rem', fontWeight: '600', color: '#1976d2' }}>
-                Confianza del análisis: {resultado.detallesScoring.confianza}%
+                Confianza del análisis: {detallesScoring.confianza || 0}%
               </span>
             </div>
           </div>
         </div>
 
-        {/* Razonamiento del algoritmo */}
+        {/* Razonamiento del algoritmo - CORREGIDO para evitar errores TypeScript */}
         <div className="seccion-detalles">
           <h4>🧮 Razonamiento del Algoritmo</h4>
           <div style={{ background: 'white', borderRadius: '12px', padding: '20px' }}>
-            {resultado.detallesScoring.razonamiento?.map((razon, index) => (
-              <div key={index} style={{ 
-                display: 'flex', 
-                gap: '12px', 
-                padding: '10px 0',
-                borderBottom: index < resultado.detallesScoring.razonamiento.length - 1 ? '1px solid #f0f0f0' : 'none'
-              }}>
-                <span style={{ 
-                  minWidth: '24px', 
-                  height: '24px', 
-                  background: '#2196f3', 
-                  color: 'white', 
-                  borderRadius: '50%', 
+            {/* VERIFICACIÓN SEGURA: Solo mostrar si existe razonamiento */}
+            {detallesScoring.razonamiento && detallesScoring.razonamiento.length > 0 ? (
+              detallesScoring.razonamiento.map((razon, index) => (
+                <div key={index} style={{ 
                   display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center',
-                  fontSize: '0.8rem',
-                  fontWeight: '600'
+                  gap: '12px', 
+                  padding: '10px 0',
+                  // LÍNEA CORREGIDA: Usar verificación segura para evitar el error de TypeScript
+                  borderBottom: index < (detallesScoring.razonamiento?.length || 0) - 1 ? '1px solid #f0f0f0' : 'none'
                 }}>
-                  {index + 1}
-                </span>
-                <span style={{ color: '#333', lineHeight: '1.5' }}>{razon}</span>
+                  <span style={{ 
+                    minWidth: '24px', 
+                    height: '24px', 
+                    background: '#2196f3', 
+                    color: 'white', 
+                    borderRadius: '50%', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    fontSize: '0.8rem',
+                    fontWeight: '600'
+                  }}>
+                    {index + 1}
+                  </span>
+                  <span style={{ color: '#333', lineHeight: '1.5' }}>{razon}</span>
+                </div>
+              ))
+            ) : (
+              <div style={{ 
+                textAlign: 'center', 
+                padding: '20px', 
+                color: '#666',
+                fontStyle: 'italic'
+              }}>
+                <p>No hay razonamiento detallado disponible para este análisis.</p>
               </div>
-            ))}
+            )}
           </div>
         </div>
 
@@ -759,6 +837,7 @@ const UploadDocumento: React.FC = () => {
                   <p><strong>Tipo:</strong> {archivo.type}</p>
                 </div>
                 
+                {/* Preview para imágenes */}
                 {archivo.type.startsWith('image/') && (
                   <div className="preview-imagen">
                     <img 
@@ -769,6 +848,7 @@ const UploadDocumento: React.FC = () => {
                   </div>
                 )}
                 
+                {/* Preview para PDFs */}
                 {archivo.type === 'application/pdf' && (
                   <div className="preview-pdf">
                     <div className="pdf-icon">📄</div>
@@ -892,6 +972,7 @@ const UploadDocumento: React.FC = () => {
                   {resultado.scoreAutenticidad}/100
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {/* Mostrar confianza solo si existe - CORREGIDO */}
                   {resultado.detallesScoring && (
                     <div style={{ fontSize: '0.9rem', color: '#666' }}>
                       Confianza: <span style={{ fontWeight: '600', color: '#333' }}>{resultado.detallesScoring.confianza}%</span>
@@ -932,6 +1013,7 @@ const UploadDocumento: React.FC = () => {
                 </div>
               </div>
               
+              {/* Recomendación con clase CSS correcta */}
               <p className={obtenerClaseRecomendacion(resultado.recomendacion)}>
                 {resultado.recomendacionTexto}
               </p>
