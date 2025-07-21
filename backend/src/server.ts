@@ -1,4 +1,7 @@
 // Servidor principal de DocuValle Backend
+import dotenv from 'dotenv';
+// Cargar variables de entorno ANTES de importar otras cosas
+dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
@@ -13,7 +16,7 @@ import { DocumentService } from './services/documentService';
 
 // Inicializamos la aplicación Express
 const app = express();
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3001;
 
 // Configuramos CORS
 app.use(cors({

@@ -21,3 +21,12 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+# Environment variables
+.env
+.env.local
+.env.development
+.env.production
+
+# Service account keys
+**/service-account-key.json
+**/config/service-account-key.json
