@@ -1,39 +1,54 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
 import UploadDocumento from "./components/UploadDocumento";
+import Login from "./components/Login/Login";
+import ProtectedRoute from "./components/ProtectedRoute";
+
 import "./components/UploadDocumento.css";
-import Login from "./components/Login/Login"; // Asegúrate de tenerlo en esta ruta
 import "./App.css";
 
 function App() {
+
+  React.useEffect(() => {
+    localStorage.clear();
+  }, []);
+
   return (
     <Router>
-      <div className="App">
-        <header className="App-header">
-          <h1>🚀 DocuValle - Sistema de Análisis de Documentos</h1>
-          <p>Procesamiento inteligente de documentos con Google Cloud Vision API</p>
+      <Routes>
+        {/* Ruta de login */}
+        <Route path="/login" element={<Login />} />
 
-          {/*  Aquí va el botón Login */}
-          <Link to="/login" className="login-button">
-            Login
-          </Link>
-        </header>
+        {/* Ruta raíz protegida */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <div className="App">
+                <header className="App-header">
+                  <h1>🚀 DocuValle - Sistema de Análisis de Documentos</h1>
+                  <p>
+                    Procesamiento inteligente de documentos con Google Cloud
+                    Vision API
+                  </p>
+                </header>
 
-        <main className="App-main">
-          <Routes>
-            {/* Ruta principal */}
-            <Route path="/" element={<UploadDocumento />} />
+                <main className="App-main">
+                  <UploadDocumento />
+                </main>
 
-            {/* Ruta para el formulario de Login */}
-            <Route path="/login" element={<Login />} />
-          </Routes>
-        </main>
+                <footer className="App-footer">
+                  <p>🏗️ DocuValle v1.0.0</p>
+                </footer>
+              </div>
+            </ProtectedRoute>
+          }
+        />
 
-        <footer className="App-footer">
-          <p>🏗️ DocuValle v1.0.0</p>
-        </footer>
-      </div>
+        {/* ⚡ Ruta default: redirige todo lo demás a login */}
+        <Route path="*" element={<Navigate to="/login" />} />
+      </Routes>
     </Router>
   );
 }
