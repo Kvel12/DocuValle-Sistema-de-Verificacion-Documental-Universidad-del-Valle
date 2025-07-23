@@ -104,3 +104,22 @@
   color: #fff;
   border-color: red;
 }
+
+
+
+.logout-button {
+  background-color: #6a0dad; /* Morado base */
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  font-size: 1rem;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-top: 15px;
+}
+
+.logout-button:hover {
+  background: linear-gradient(45deg, #6a0dad, #9b30ff);
+  transform: scale(1.05);
+}

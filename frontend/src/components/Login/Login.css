@@ -1,99 +1,158 @@
+/* -------------------------
+   Estilos base del <body>
+-------------------------- */
 body {
+  /* Fondo degradado en diagonal de dos tonos morados */
   background: linear-gradient(135deg, #8e2de2, #4a00e0);
+
+  /* Tipografía general sans-serif para todo el sitio */
   font-family: Arial, sans-serif;
+
+  /* Elimina margen y padding por defecto del navegador */
   margin: 0;
   padding: 0;
 }
 
+/* -------------------------
+   Contenedor del formulario
+   Centra vertical y horizontal
+-------------------------- */
 .login-container {
-  display: flex;
-  height: 100vh;
-  justify-content: center;
-  align-items: center;
+  display: flex;          /* Activa flexbox */
+  height: 100vh;          /* Toma toda la altura de la pantalla */
+  justify-content: center;/* Centra horizontalmente */
+  align-items: center;    /* Centra verticalmente */
 }
 
+/* -------------------------
+   Formulario de login
+   Glassmorphism + estilos
+-------------------------- */
 .login-form {
+  /* Fondo blanco translúcido */
   background: rgba(255, 255, 255, 0.1);
+
+  /* Efecto de desenfoque de fondo (glassmorphism) */
   backdrop-filter: blur(15px);
+
+  /* Bordes redondeados */
   border-radius: 12px;
+
+  /* Espaciado interior */
   padding: 2rem;
+
+  /* Ancho fijo para mantener proporciones */
   width: 320px;
+
+  /* Sombra para dar efecto de profundidad */
   box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+
+  /* Borde sutil translúcido para resaltar contorno */
   border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
+/* -------------------------
+   Título del formulario
+-------------------------- */
 .login-form h2 {
-  margin-bottom: 1.5rem;
-  color: #ffffff;
-  text-align: center;
+  margin-bottom: 1.5rem; /* Espacio inferior */
+  color: #ffffff;        /* Texto blanco */
+  text-align: center;    /* Centrado */
 }
 
+/* -------------------------
+   Etiquetas de los campos
+-------------------------- */
 .login-form label {
-  display: block;
-  margin-top: 1rem;
-  color: #f0f0f0;
-  font-weight: bold;
+  display: block;    /* Cada etiqueta ocupa línea completa */
+  margin-top: 1rem;  /* Separación superior entre campos */
+  color: #f0f0f0;    /* Color claro */
+  font-weight: bold; /* Negrita para mayor visibilidad */
 }
 
+/* -------------------------
+   Campos de entrada de texto
+-------------------------- */
 .login-form input {
-  width: 100%;
-  padding: 0.6rem;
-  margin-top: 0.3rem;
-  border: none;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
-  outline: none;
+  width: 100%;              /* Ancho completo del contenedor */
+  padding: 0.6rem;          /* Relleno interior */
+  margin-top: 0.3rem;       /* Espacio entre label y input */
+  border: none;             /* Sin borde por defecto */
+  border-radius: 6px;       /* Bordes redondeados */
+  background: rgba(255, 255, 255, 0.2); /* Fondo translúcido */
+  color: #fff;              /* Texto blanco */
+  outline: none;            /* Sin contorno azul del navegador */
 }
 
+/* -------------------------
+   Color del placeholder
+-------------------------- */
 .login-form input::placeholder {
-  color: #ddd;
+  color: #ddd; /* Color gris claro para pistas dentro de inputs */
 }
 
+/* -------------------------
+   Cambio de fondo al enfocar input
+-------------------------- */
 .login-form input:focus {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.3); /* Fondo un poco más claro */
 }
 
+/* -------------------------
+   Botones del formulario (Ingresar)
+-------------------------- */
 .login-form button {
-  width: 100%;
-  padding: 0.8rem;
-  margin-top: 1.5rem;
-  background: linear-gradient(135deg, #8e2de2, #4a00e0);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: bold;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  width: 100%; /* Ocupa todo el ancho del formulario */
+  padding: 0.8rem; /* Altura del botón */
+  margin-top: 1.5rem; /* Separación superior */
+  background: linear-gradient(135deg, #8e2de2, #4a00e0); /* Mismo degradado que fondo */
+  color: #fff; /* Texto blanco */
+  border: none; /* Sin borde */
+  border-radius: 6px; /* Bordes redondeados */
+  cursor: pointer; /* Cambia cursor a mano */
+  font-weight: bold; /* Texto en negrita */
+  transition: all 0.3s ease; /* Transición suave en hover */
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); /* Sombra para profundidad */
 }
 
+/* -------------------------
+   Estado hover del botón principal
+-------------------------- */
 .login-form button:hover {
-  background: linear-gradient(135deg, #6a11cb, #2575fc);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  background: linear-gradient(135deg, #6a11cb, #2575fc); /* Cambio a otro degradado */
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); /* Aumenta la sombra */
 }
 
+/* -------------------------
+   Botón cerrar/cancelar (❌)
+-------------------------- */
 .close-button {
-  width: 100%;
-  margin-top: 0.8rem;
-  background: transparent;
-  color: #fff;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50px;
-  padding: 0.5rem;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
+  width: 100%; /* Mismo ancho que botón principal */
+  margin-top: 0.8rem; /* Separación superior */
+  background: transparent; /* Fondo transparente */
+  color: #fff; /* Texto blanco */
+  border: 2px solid rgba(255, 255, 255, 0.3); /* Borde blanco translúcido */
+  border-radius: 50px; /* Bordes completamente redondeados (pill) */
+  padding: 0.5rem; /* Relleno interior */
+  font-size: 1rem; /* Tamaño de texto */
+  cursor: pointer; /* Cursor en forma de mano */
+  transition: all 0.3s ease; /* Transición suave */
 }
 
+/* -------------------------
+   Hover del botón cerrar
+-------------------------- */
 .close-button:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: #fff;
+  background: rgba(255, 255, 255, 0.2); /* Fondo translúcido en hover */
+  border-color: #fff; /* Borde se vuelve blanco sólido */
 }
 
+/* -------------------------
+   Mensaje de error
+-------------------------- */
 .error-message {
-  color: #ff6b6b;
-  margin-top: 1rem;
-  font-size: 0.9rem;
-  text-align: center;
+  color: #ff6b6b;   /* Rojo suave para destacar error */
+  margin-top: 1rem; /* Separación del input */
+  font-size: 0.9rem;/* Tamaño de texto más pequeño */
+  text-align: center; /* Centrado dentro del formulario */
 }
