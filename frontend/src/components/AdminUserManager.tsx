@@ -160,3 +160,5 @@ const AdminUserManager: React.FC = () => {
 };
 
 export default AdminUserManager;
+// This code defines a React component for managing admin users in a Firebase Firestore database.
+// It allows creating, editing, and deleting admin users, and displays a list of registered admins

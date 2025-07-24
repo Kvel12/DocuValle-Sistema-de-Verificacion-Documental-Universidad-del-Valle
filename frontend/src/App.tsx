@@ -2,7 +2,7 @@ import React from 'react';
 import UploadDocumento from './components/UploadDocumento';
 import './components/UploadDocumento.css';
 import './App.css';
-import AdminUserManager from './components/AdminUserManager';
+import AdminUserManager from './components/AdminUserManager'; // Importing the AdminUserManager component
 
 
 function App() {
@@ -13,7 +13,7 @@ function App() {
         <p>Procesamiento inteligente de documentos con Google Cloud Vision API</p>
       </header>
 
-      <AdminUserManager />
+      <AdminUserManager /> {/* Including the AdminUserManager component for admin user management */}
       <main className="App-main">
         <UploadDocumento />
       </main>
