@@ -2,6 +2,8 @@ import React from 'react';
 import UploadDocumento from './components/UploadDocumento';
 import './components/UploadDocumento.css';
 import './App.css';
+import AdminUserManager from './components/AdminUserManager';
+
 
 function App() {
   return (
@@ -11,10 +13,12 @@ function App() {
         <p>Procesamiento inteligente de documentos con Google Cloud Vision API</p>
       </header>
 
+      <AdminUserManager />
       <main className="App-main">
         <UploadDocumento />
       </main>
 
+  
       <footer className="App-footer">
         <p>🏗️ DocuValle v1.0.0</p>
       </footer>
