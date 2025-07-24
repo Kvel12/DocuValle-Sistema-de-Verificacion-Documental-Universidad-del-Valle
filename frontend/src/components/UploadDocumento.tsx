@@ -4,6 +4,9 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
+import jsPDF from "jspdf";
+import { useRef } from "react";
+import html2canvas from "html2canvas";
 
 // ==================== DEFINICIÓN DE TIPOS E INTERFACES ====================
 // Estas interfaces definen exactamente qué datos esperamos del backend
@@ -116,7 +119,8 @@ const UploadDocumento: React.FC = () => {
   const [resultado, setResultado] = useState<ResultadoAnalisis | null>(null); // Resultados del análisis
   const [asignacion, setAsignacion] = useState<AsignacionUsuario | null>(null); // Asignación a usuario
   const [revisionManual, setRevisionManual] = useState<RevisionManual | null>(null); // Revisión manual del documento
-  
+  const resultadoRef = useRef<HTMLDivElement>(null);
+
   // ESTADOS DE CARGA - Muestran spinners y bloquean botones mientras se procesa
   const [subiendo, setSubiendo] = useState(false);
   const [analizando, setAnalizando] = useState(false);
@@ -436,6 +440,45 @@ const UploadDocumento: React.FC = () => {
     setMostrarMarcadoManual(false);
     setMostrarAnalisisTecnico(false);
     setProgresoProcesamiento([]);
+  };
+
+  const generarPDFDesdeHTML = async () => {
+    if (!resultadoRef.current) return;
+
+    const elemento = resultadoRef.current;
+
+    const canvas = await html2canvas(elemento, {
+      scale: 2, // Aumenta la calidad del render
+      useCORS: true
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+
+    const pdf = new jsPDF("p", "mm", "a4");
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    let position = 0;
+
+    if (imgHeight < pageHeight) {
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    } else {
+      // Si es más largo que una página A4, hacemos salto de página
+      let remainingHeight = imgHeight;
+      while (remainingHeight > 0) {
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        remainingHeight -= pageHeight;
+        if (remainingHeight > 0) {
+          pdf.addPage();
+          position = 0;
+        }
+      }
+    }
+
+    pdf.save("analisis_visual.pdf");
   };
 
   // ==================== FUNCIONES AUXILIARES ====================
@@ -959,7 +1002,7 @@ const UploadDocumento: React.FC = () => {
         <section className="paso-resultados">
           <h3>Paso 3: Resultados del Análisis IA Híbrida 📊</h3>
           
-          <div className="resultado-analisis">
+          <div className="resultado-analisis" ref={resultadoRef}>
             
             {/* Score principal con información híbrida */}
             <div className="score-autenticidad">
@@ -1131,6 +1174,15 @@ const UploadDocumento: React.FC = () => {
                 className="btn-asignar"
               >
                 👤 Asignar a Usuario
+              </button>
+
+              <button
+                onClick={
+                  generarPDFDesdeHTML
+                }
+                className="btn-descargar"
+              >
+                📥 Descargar PDF del Análisis
               </button>
               
               <button 

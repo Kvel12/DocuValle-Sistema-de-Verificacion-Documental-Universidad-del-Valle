@@ -335,6 +335,7 @@
 .btn-analizar,
 .btn-asignar,
 .btn-nuevo,
+.btn-descargar,
 .btn-nuevo-small,
 .btn-confirmar,
 .btn-cancelar,
@@ -397,6 +398,12 @@
   box-shadow: 0 3px 12px rgba(103, 58, 183, 0.3);
 }
 
+.btn-descargar {
+  background: linear-gradient(135deg, #968fa3 0%, #512da8 100%);
+  color: white;
+  box-shadow: 0 3px 12px rgba(103, 58, 183, 0.3);
+}
+
 .btn-nuevo-small {
   background: linear-gradient(135deg, #607d8b 0%, #455a64 100%);
   color: white;
@@ -414,6 +421,7 @@
 .btn-detalles:hover,
 .btn-marcar-manual:hover,
 .btn-nuevo:hover,
+.btn-descargar:hover,
 .btn-nuevo-small:hover {
   transform: translateY(-2px);
   box-shadow: 0 5px 16px rgba(0, 0, 0, 0.2);
@@ -1189,6 +1197,7 @@
   .btn-analizar,
   .btn-asignar,
   .btn-nuevo,
+  .btn-descargar,
   .btn-nuevo-small,
   .btn-confirmar,
   .btn-cancelar,
@@ -1276,6 +1285,7 @@
 .btn-analizar:focus,
 .btn-asignar:focus,
 .btn-nuevo:focus,
+.btn-descargar:focus,
 .btn-detalles:focus,
 .btn-marcar-manual:focus,
 .btn-confirmar:focus,
