@@ -1,7 +1,7 @@
 // UploadDocumento.tsx - Versión Final con Análisis Híbrido y Correcciones TypeScript
 // Este archivo maneja todo el flujo de subida y análisis de documentos con IA
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 
@@ -103,6 +103,18 @@ interface RevisionManual {
   fechaRevision: string;
 }
 
+// NUEVO: Tipo para documentos listados
+interface DocumentoListado {
+  id: string;
+  nombreArchivo: string;
+  userId: string;
+  fechaProcesamiento: string;
+  scoreAutenticidad: number;
+  recomendacion: string;
+  estadoRevision?: string;
+  archivoUrl: string;
+}
+
 // URL del backend - se toma de variables de entorno o usa la URL por defecto
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://docuvalle-backend-166554040569.us-central1.run.app';
 
@@ -138,6 +150,19 @@ const UploadDocumento: React.FC = () => {
   // Estados para el marcado manual
   const [decisionManual, setDecisionManual] = useState<'accept' | 'review' | 'reject'>('review');
   const [comentarioRevisor, setComentarioRevisor] = useState('');
+
+  // ESTADOS PARA LISTADO DE DOCUMENTOS
+  const [mostrarListaDocumentos, setMostrarListaDocumentos] = useState(false);
+  const [documentos, setDocumentos] = useState<DocumentoListado[]>([]);
+  const [filtroUsuario, setFiltroUsuario] = useState('');
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
+  const [cargandoDocumentos, setCargandoDocumentos] = useState(false);
+  const [documentoSeleccionado, setDocumentoSeleccionado] = useState<DocumentoListado | null>(null);
+  const [inputUsuario, setInputUsuario] = useState('');
+  const [inputFechaDesde, setInputFechaDesde] = useState('');
+  const [inputFechaHasta, setInputFechaHasta] = useState('');
+
 
   // ==================== CONFIGURACIÓN DE DROPZONE ====================
   // Esta función se ejecuta cuando el usuario suelta archivos en la zona de drag & drop
@@ -484,6 +509,35 @@ const UploadDocumento: React.FC = () => {
     }
   };
 
+    // ==================== LISTADO DE DOCUMENTOS ====================
+  const buscarDocumentos = async () => {
+  setCargandoDocumentos(true);
+  setDocumentoSeleccionado(null);
+  try {
+    // Construir body para el backend
+    const body: any = {
+      nombreUsuario: filtroUsuario.trim()
+    };
+    if (filtroFechaDesde) body.fechaDesde = filtroFechaDesde;
+    if (filtroFechaHasta) body.fechaHasta = filtroFechaHasta;
+
+    // Usar el endpoint POST correcto
+    const res = await axios.post(`${API_BASE_URL}/api/documents/search`, body);
+    setDocumentos(res.data.documentos || []);
+  } catch (e) {
+    setError('Error obteniendo documentos');
+  } finally {
+    setCargandoDocumentos(false);
+  }
+};
+
+    // NUEVO: Colores para el score
+  const colorScore = (score: number) => {
+    if (score >= 75) return '#4caf50';
+    if (score >= 45) return '#ff9800';
+    return '#f44336';
+  };
+
   // ==================== COMPONENTES INTERNOS ====================
 
   /**
@@ -777,9 +831,237 @@ const UploadDocumento: React.FC = () => {
     );
   };
 
+  /**
+   * Componente que muestra el botón para ver documentos procesados
+   * y maneja la lógica de mostrar/ocultar la lista de documentos
+   */
+  const DocumentosProcesadosModal: React.FC<{
+  mostrarListaDocumentos: boolean;
+  setMostrarListaDocumentos: React.Dispatch<React.SetStateAction<boolean>>;
+  filtroUsuario: string;
+  setFiltroUsuario: React.Dispatch<React.SetStateAction<string>>;
+  filtroFechaDesde: string;
+  setFiltroFechaDesde: React.Dispatch<React.SetStateAction<string>>;
+  filtroFechaHasta: string;
+  setFiltroFechaHasta: React.Dispatch<React.SetStateAction<string>>;
+  buscarDocumentos: () => void;
+  documentos: DocumentoListado[];
+  cargandoDocumentos: boolean;
+  documentoSeleccionado: DocumentoListado | null;
+  setDocumentoSeleccionado: React.Dispatch<React.SetStateAction<DocumentoListado | null>>;
+  colorScore: (score: number) => string;
+  }> = ({
+    mostrarListaDocumentos,
+    setMostrarListaDocumentos,
+    filtroUsuario,
+    setFiltroUsuario,
+    filtroFechaDesde,
+    setFiltroFechaDesde,
+    filtroFechaHasta,
+    setFiltroFechaHasta,
+    buscarDocumentos,
+    documentos,
+    cargandoDocumentos,
+    documentoSeleccionado,
+    setDocumentoSeleccionado,
+    colorScore
+  }) => {
+    // Estados locales para los inputs de filtro
+    const [inputUsuario, setInputUsuario] = React.useState(filtroUsuario);
+    const [inputFechaDesde, setInputFechaDesde] = React.useState(filtroFechaDesde);
+    const [inputFechaHasta, setInputFechaHasta] = React.useState(filtroFechaHasta);
+
+    // Sincroniza los inputs locales con los filtros globales cuando se abre el modal
+    React.useEffect(() => {
+      if (mostrarListaDocumentos) {
+        setInputUsuario(filtroUsuario);
+        setInputFechaDesde(filtroFechaDesde);
+        setInputFechaHasta(filtroFechaHasta);
+      }
+      // eslint-disable-next-line
+    }, [mostrarListaDocumentos]);
+
+    // Al hacer click en buscar, actualiza los filtros globales y ejecuta la búsqueda
+    const handleBuscar = () => {
+      setFiltroUsuario(inputUsuario);
+      setFiltroFechaDesde(inputFechaDesde);
+      setFiltroFechaHasta(inputFechaHasta);
+      buscarDocumentos();
+    };
+
+    return (
+      <>
+        <div style={{ margin: '32px 0 0 0', textAlign: 'center' }}>
+          <button
+            className="btn-ver-documentos"
+            style={{
+              background: 'linear-gradient(90deg, #2196f3 0%, #21cbf3 100%)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '10px 22px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontSize: '1rem'
+            }}
+            onClick={() => {
+              setMostrarListaDocumentos(true);
+              buscarDocumentos();
+            }}
+          >
+            📚 Ver Documentos Procesados
+          </button>
+        </div>
+
+        {mostrarListaDocumentos && (
+          <div className="modal-lista-documentos" style={{
+            position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+            background: 'rgba(0,0,0,0.25)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}>
+            <div className="modal-content-large" style={{
+              background: 'white', borderRadius: '14px', padding: '32px', width: '90vw', maxWidth: '900px', maxHeight: '90vh', overflowY: 'auto'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                <h3>📚 Documentos Procesados</h3>
+                <button onClick={() => setMostrarListaDocumentos(false)}
+                  style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#666' }}>
+                  ✕
+                </button>
+              </div>
+              {/* Filtros */}
+              <div style={{ display: 'flex', gap: '18px', marginBottom: 18, flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  placeholder="Filtrar por usuario asignado"
+                  value={inputUsuario}
+                  onChange={e => setInputUsuario(e.target.value)}
+                  style={{ padding: '7px', borderRadius: '6px', border: '1px solid #ccc', minWidth: '180px' }}
+                />
+                <input
+                  type="date"
+                  value={inputFechaDesde}
+                  onChange={e => setInputFechaDesde(e.target.value)}
+                  style={{ padding: '7px', borderRadius: '6px', border: '1px solid #ccc' }}
+                />
+                <input
+                  type="date"
+                  value={inputFechaHasta}
+                  onChange={e => setInputFechaHasta(e.target.value)}
+                  style={{ padding: '7px', borderRadius: '6px', border: '1px solid #ccc' }}
+                />
+                <button
+                  onClick={handleBuscar}
+                  style={{
+                    background: '#1976d2', color: 'white', border: 'none', borderRadius: '6px',
+                    padding: '7px 18px', fontWeight: 600, cursor: 'pointer'
+                  }}
+                >
+                  🔍 Buscar
+                </button>
+              </div>
+              {/* Lista de documentos */}
+              {cargandoDocumentos ? (
+                <div style={{ textAlign: 'center', padding: '40px' }}>⏳ Cargando documentos...</div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.98rem' }}>
+                    <thead>
+                      <tr style={{ background: '#f5f5f5' }}>
+                        <th style={{ padding: '8px' }}>Usuario</th>
+                        <th style={{ padding: '8px' }}>Archivo</th>
+                        <th style={{ padding: '8px' }}>Fecha</th>
+                        <th style={{ padding: '8px' }}>Score</th>
+                        <th style={{ padding: '8px' }}>Estado</th>
+                        <th style={{ padding: '8px' }}>Ver</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {documentos.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
+                            No se encontraron documentos.
+                          </td>
+                        </tr>
+                      ) : (
+                        documentos.map(doc => (
+                          <tr key={doc.id} style={{ borderBottom: '1px solid #eee', background: documentoSeleccionado?.id === doc.id ? '#e3f2fd' : 'white' }}>
+                            <td style={{ padding: '8px' }}>{doc.userId || <span style={{ color: '#aaa' }}>Sin asignar</span>}</td>
+                            <td style={{ padding: '8px' }}>{doc.nombreArchivo}</td>
+                            <td style={{ padding: '8px' }}>{new Date(doc.fechaProcesamiento).toLocaleString()}</td>
+                            <td style={{ padding: '8px' }}>
+                              <span style={{
+                                fontWeight: 700,
+                                color: colorScore(doc.scoreAutenticidad),
+                                background: '#f0f0f0',
+                                borderRadius: '6px',
+                                padding: '2px 10px'
+                              }}>
+                                {doc.scoreAutenticidad}
+                              </span>
+                            </td>
+                            <td style={{ padding: '8px' }}>
+                              <span style={{
+                                color: doc.recomendacion === 'accept' ? '#4caf50' :
+                                  doc.recomendacion === 'review' ? '#ff9800' : '#f44336',
+                                fontWeight: 600
+                              }}>
+                                {doc.recomendacion?.toUpperCase() || '-'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '8px' }}>
+                              <button
+                                style={{
+                                  background: '#1976d2', color: 'white', border: 'none',
+                                  borderRadius: '5px', padding: '3px 12px', cursor: 'pointer'
+                                }}
+                                onClick={() => setDocumentoSeleccionado(doc)}
+                              >
+                                Ver
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {/* Detalles del documento seleccionado */}
+              {documentoSeleccionado && (
+                <div style={{
+                  marginTop: '28px', background: '#f9f9f9', borderRadius: '10px', padding: '18px 22px'
+                }}>
+                  <h4>📄 Detalles del Documento</h4>
+                  <p><b>Usuario:</b> {documentoSeleccionado.userId}</p>
+                  <p><b>Archivo:</b> {documentoSeleccionado.nombreArchivo}</p>
+                  <p><b>Fecha:</b> {new Date(documentoSeleccionado.fechaProcesamiento).toLocaleString()}</p>
+                  <p><b>Score:</b> <span style={{ color: colorScore(documentoSeleccionado.scoreAutenticidad), fontWeight: 700 }}>{documentoSeleccionado.scoreAutenticidad}</span></p>
+                  <p><b>Estado:</b> {documentoSeleccionado.recomendacion?.toUpperCase()}</p>
+                  <p>
+                    <b>Enlace:</b> <a href={documentoSeleccionado.archivoUrl} target="_blank" rel="noopener noreferrer">Ver archivo</a>
+                  </p>
+                  <button
+                    style={{
+                      marginTop: '10px', background: '#1976d2', color: 'white', border: 'none',
+                      borderRadius: '5px', padding: '7px 18px', cursor: 'pointer'
+                    }}
+                    onClick={() => setDocumentoSeleccionado(null)}
+                  >
+                    Ocultar Detalles
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
+
   // ==================== RENDERIZADO PRINCIPAL ====================
 
   return (
+    <>
     <div className="upload-documento-container">
       
       {/* Indicador de progreso de pasos */}
@@ -1392,6 +1674,22 @@ const UploadDocumento: React.FC = () => {
         </section>
       )}
     </div>
+    <DocumentosProcesadosModal
+    mostrarListaDocumentos={mostrarListaDocumentos}
+    setMostrarListaDocumentos={setMostrarListaDocumentos}
+    filtroUsuario={filtroUsuario}
+    setFiltroUsuario={setFiltroUsuario}
+    filtroFechaDesde={filtroFechaDesde}
+    setFiltroFechaDesde={setFiltroFechaDesde}
+    filtroFechaHasta={filtroFechaHasta}
+    setFiltroFechaHasta={setFiltroFechaHasta}
+    buscarDocumentos={buscarDocumentos}
+    documentos={documentos}
+    cargandoDocumentos={cargandoDocumentos}
+    documentoSeleccionado={documentoSeleccionado}
+    setDocumentoSeleccionado={setDocumentoSeleccionado}
+    colorScore={colorScore}/>
+    </>
   );
 };
 

@@ -507,19 +507,32 @@ app.post('/api/documents/:documentoId/assign', async (req, res) => {
   }
 });
 
-app.get('/api/documents/search/:nombreUsuario', async (req, res) => {
+app.post('/api/documents/search', async (req, res) => {
   try {
-    console.log('🔍 Buscando documentos por usuario...');
+    const { nombreUsuario, fechaDesde, fechaHasta } = req.body;
 
-    const { nombreUsuario } = req.params;
+    if (!nombreUsuario) {
+      return res.status(400).json({
+        success: false,
+        message: 'nombreUsuario es obligatorio',
+        error: 'MISSING_USER_NAME'
+      });
+    }
 
-    const snapshot = await db
+    let consulta = db
       .collection('documentos')
-      .where('usuarioAsignado', '==', nombreUsuario)
-      .orderBy('fechaProcesamiento', 'desc')
-      .limit(20)
-      .get();
+      .where('usuarioAsignado', '==', nombreUsuario);
 
+    if (fechaDesde) {
+      consulta = consulta.where('fechaProcesamiento', '>=', new Date(fechaDesde));
+    }
+    if (fechaHasta) {
+      consulta = consulta.where('fechaProcesamiento', '<=', new Date(fechaHasta));
+    }
+
+    consulta = consulta.orderBy('fechaProcesamiento', 'desc').limit(20);
+
+    const snapshot = await consulta.get();
     const documentos: any[] = [];
 
     snapshot.forEach((doc: any) => {
@@ -529,32 +542,20 @@ app.get('/api/documents/search/:nombreUsuario', async (req, res) => {
         nombreArchivo: data.nombreArchivo,
         tipoDocumento: data.tipoDocumento,
         scoreAutenticidad: data.scoreAutenticidad,
-        recomendacion: data.recomendacion,
-        recomendacionManual: data.recomendacionManual,
-        estadoRevision: data.estadoRevision,
-        fechaProcesamiento: data.fechaProcesamiento.toDate().toISOString(),
-        fechaRevisionManual: data.fechaRevisionManual ? data.fechaRevisionManual.toDate().toISOString() : null,
         estado: data.estado,
-        // NUEVO: Información de análisis híbrido
-        analisisGemini: data.analisisGemini || null
+        fechaProcesamiento: data.fechaProcesamiento.toDate().toISOString()
       });
     });
 
-    console.log(`✅ Encontrados ${documentos.length} documentos para ${nombreUsuario}`);
-
     res.json({
       success: true,
-      message: `📋 Encontrados ${documentos.length} documentos`,
-      usuario: nombreUsuario,
-      documentos: documentos,
+      documentos,
       total: documentos.length
     });
-
   } catch (error) {
-    console.error('❌ Error buscando documentos:', error);
     res.status(500).json({
       success: false,
-      message: '❌ Error buscando documentos',
+      message: 'Error buscando documentos',
       error: error instanceof Error ? error.message : 'Error desconocido'
     });
   }
@@ -622,6 +623,55 @@ app.get('/api/documents/:documentoId/details', async (req, res) => {
     res.status(500).json({
       success: false,
       message: '❌ Error obteniendo detalles del documento',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+/**
+ * Obtener documentos de un usuario con filtros avanzados (usa getUserDocuments)
+ */
+app.post('/api/documents/user-documents', async (req, res) => {
+  try {
+    const { userId, filtros } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId es obligatorio',
+        error: 'MISSING_USER_ID'
+      });
+    }
+
+    // Si no se envían filtros, usar undefined para obtener todos los documentos del usuario
+    let filtrosProcesados = filtros;
+    if (!filtros || Object.keys(filtros).length === 0) {
+      filtrosProcesados = undefined;
+    } else {
+      // Convertir fechas de string a Date si vienen como string ISO
+      if (filtros.fechaDesde && typeof filtros.fechaDesde === 'string') {
+        filtrosProcesados.fechaDesde = new Date(filtros.fechaDesde);
+      }
+      if (filtros.fechaHasta && typeof filtros.fechaHasta === 'string') {
+        filtrosProcesados.fechaHasta = new Date(filtros.fechaHasta);
+      }
+    }
+
+    const documentos = await documentService.getUserDocuments(userId, filtrosProcesados);
+
+    res.json({
+      success: true,
+      message: `📋 Encontrados ${documentos.length} documentos`,
+      userId,
+      filtros: filtrosProcesados,
+      documentos,
+      total: documentos.length
+    });
+  } catch (error) {
+    console.error('❌ Error obteniendo documentos del usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error obteniendo documentos del usuario',
       error: error instanceof Error ? error.message : 'Error desconocido'
     });
   }
