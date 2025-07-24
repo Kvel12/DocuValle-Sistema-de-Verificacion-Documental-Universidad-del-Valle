@@ -145,7 +145,7 @@ const Login: React.FC = () => {
           onClick={handleCancel} // Llama a handleCancel al hacer clic
           aria-label="Cerrar"
         >
-          ❌
+          ❌ Cerrar
         </button>
       </form>
     </div>
