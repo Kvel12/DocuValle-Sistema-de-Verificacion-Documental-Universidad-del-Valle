@@ -1,148 +1,118 @@
-// Importa React y el hook useState para manejar estados locales del componente
+// Importa React y useState para gestionar el estado interno del formulario
 import React, { useState } from "react";
 
-// Importa useNavigate de react-router-dom para cambiar de ruta de forma programática (sin recargar)
+// Importa useNavigate de react-router-dom para redirigir rutas de forma programática
 import { useNavigate } from "react-router-dom";
 
-// Importa el archivo de estilos CSS para el formulario Login
+// Importa los estilos específicos del formulario de login
 import "./Login.css";
 
-// Define la duración de la sesión en milisegundos (1 hora)
-// Se usa para establecer cuándo expira la sesión simulada
+// Duración de la sesión en milisegundos (1 hora)
 const SESSION_DURATION_MS = 60 * 60 * 1000;
 
-/**
- * Función para enviar la solicitud de inicio de sesión.
- * Aquí deberías reemplazar la llamada fakeLogin por una solicitud real a tu backend (fetch o axios).
- * Por ahora, solo simula una respuesta usando la función fakeLogin.
- *
- * @param email - Correo electrónico ingresado por el usuario
- * @param password - Contraseña ingresada por el usuario
- * @returns Promise<boolean> - true si las credenciales son correctas, false en caso contrario
- */
+// Función simulada para enviar la solicitud de inicio de sesión
+// Aquí podrías conectar una API real en producción
 const loginRequest = async (email: string, password: string): Promise<boolean> => {
   return await fakeLogin(email, password);
 };
 
-/**
- * Función simulada para validar credenciales sin un backend real.
- * Comprueba si email y password coinciden con valores fijos.
- * Agrega un retraso de 1 segundo para simular el tiempo de respuesta de un servidor real.
- *
- * @param email - Correo ingresado
- * @param password - Contraseña ingresada
- * @returns Promise<boolean> - true si es correcto, false si no lo es
- */
+// Mock temporal para simular la respuesta de un servidor
+// Acepta solo el usuario admin@example.com con contraseña 1234
 const fakeLogin = async (email: string, password: string): Promise<boolean> => {
   return new Promise((resolve) => {
     setTimeout(() => {
-      if (email === "user@example.com" && password === "123456") {
-        resolve(true);
+      if (email === "admin@example.com" && password === "1234") {
+        resolve(true); // Credenciales correctas
       } else {
-        resolve(false);
+        resolve(false); // Credenciales incorrectas
       }
-    }, 1000); // Simula retardo de servidor
+    }, 1000); // Simula un retardo de red de 1 segundo
   });
 };
 
-// Declaración del componente funcional Login, tipado como React.FC (Functional Component)
+// Componente funcional Login
 const Login: React.FC = () => {
-  // Estado local para almacenar el correo electrónico ingresado
+  // Estado para almacenar el correo electrónico introducido por el usuario
   const [email, setEmail] = useState("");
 
-  // Estado local para la contraseña ingresada
+  // Estado para almacenar la contraseña introducida por el usuario
   const [password, setPassword] = useState("");
 
-  // Estado local para mostrar mensajes de error si las credenciales no coinciden
+  // Estado para almacenar mensajes de error (credenciales incorrectas, etc.)
   const [error, setError] = useState("");
 
-  // useNavigate se usa para redirigir al usuario a otra ruta del SPA
+  // Hook para redirigir a otra ruta sin recargar la página
   const navigate = useNavigate();
 
-  /**
-   * Maneja el envío del formulario de inicio de sesión.
-   * Evita la recarga de página, limpia errores previos,
-   * llama a loginRequest para verificar las credenciales,
-   * guarda la sesión simulada en localStorage si es exitoso
-   * y redirige al dashboard. Si falla, muestra mensaje de error.
-   *
-   * @param e - Evento de formulario
-   */
+  // Función que se ejecuta cuando el usuario envía el formulario
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); // Previene recarga completa de la página
-    setError(""); // Limpia errores anteriores
+    e.preventDefault(); // Previene recargar la página
+    setError(""); // Limpia errores previos
 
-    const success = await loginRequest(email, password); // Llama a la función de validación
+    // Intenta iniciar sesión usando la función simulada
+    const success = await loginRequest(email, password);
 
     if (success) {
-      // Si las credenciales son correctas, guarda una "sesión" simulada con fecha de expiración
+      // Si el login es exitoso, guarda la sesión en localStorage con fecha de expiración
       localStorage.setItem(
         "session",
         JSON.stringify({ expires: Date.now() + SESSION_DURATION_MS })
       );
 
-      // Redirige al dashboard (puedes reemplazar window.location.href por navigate('/dashboard') si quieres SPA)
-      window.location.href = "/dashboard";
+      // Redirige a la ruta raíz ("/") usando navigate de React Router
+      navigate("/"); // Redirige sin recargar la página
     } else {
       // Si las credenciales son incorrectas, muestra mensaje de error
       setError("Credenciales incorrectas. Intenta nuevamente.");
     }
   };
 
-  /**
-   * Maneja la acción de cancelar o cerrar el formulario.
-   * Usa navigate("/") para volver a la ruta principal (pantalla principal).
-   */
+  // Función para limpiar los campos del formulario si se cancela
   const handleCancel = () => {
-    navigate("/"); // Redirige a la ruta raíz
+    setEmail("");     // Limpia el email ingresado
+    setPassword("");  // Limpia la contraseña ingresada
+    setError("");     // Limpia mensaje de error si existía
   };
 
-  /**
-   * Estructura visual del formulario de login:
-   * - Campos de entrada para email y contraseña
-   * - Mensaje de error si las credenciales son inválidas
-   * - Botón para enviar el formulario
-   * - Botón ❌ (cerrar) para volver a la página principal
-   */
   return (
     <div className="login-container">
+      {/* Formulario de inicio de sesión */}
       <form className="login-form" onSubmit={handleSubmit}>
-        {/* Título del formulario */}
         <h2>Iniciar Sesión</h2>
 
-        {/* Campo de entrada para el correo electrónico */}
+        {/* Campo de email */}
         <label htmlFor="email">Email</label>
         <input
           type="email"
           id="email"
-          placeholder="correo@example.com"
+          placeholder="admin@example.com"
           value={email}
-          onChange={(e) => setEmail(e.target.value)} // Actualiza estado al escribir
+          onChange={(e) => setEmail(e.target.value)} // Actualiza estado en cada tecla
           required
         />
 
-        {/* Campo de entrada para la contraseña */}
+        {/* Campo de contraseña */}
         <label htmlFor="password">Contraseña</label>
         <input
           type="password"
           id="password"
           placeholder="••••••••"
           value={password}
-          onChange={(e) => setPassword(e.target.value)} // Actualiza estado al escribir
+          onChange={(e) => setPassword(e.target.value)} // Actualiza estado
           required
         />
 
-        {/* Mensaje de error si las credenciales no coinciden */}
+        {/* Mensaje de error si las credenciales no son correctas */}
         {error && <p className="error-message">{error}</p>}
 
         {/* Botón para enviar el formulario */}
         <button type="submit">Ingresar</button>
 
-        {/* Botón ❌ para cancelar y volver a la pantalla principal */}
+        {/* Botón opcional para limpiar campos */}
         <button
           type="button"
           className="close-button"
-          onClick={handleCancel} // Llama a handleCancel al hacer clic
+          onClick={handleCancel}
           aria-label="Cerrar"
         >
           ❌ Cerrar
@@ -152,5 +122,5 @@ const Login: React.FC = () => {
   );
 };
 
-// Exporta el componente para poder usarlo en App.tsx u otros módulos
+// Exporta el componente Login para usarlo en el Router principal
 export default Login;
