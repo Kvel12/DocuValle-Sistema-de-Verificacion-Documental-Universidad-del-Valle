@@ -111,10 +111,18 @@ function App() {
           path="/crear-admin"
           element={
             <ProtectedRoute>
-              <CreateAdminUser />
+              <div className="App">
+                <main className="App-main">
+                  <CreateAdminUser />
+                </main>
+                <footer className="App-footer">
+                  <p>🏗️ DocuValle v1.0.0</p>
+                </footer>
+              </div>
             </ProtectedRoute>
           }
         />
+
       </Routes>
     </Router>
   );
