@@ -64,7 +64,7 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     version: '3.0.0',
-    features: ['PDF_SUPPORT', 'MANUAL_MARKING', 'GEMINI_INTEGRATION', 'REAL_ANALYSIS', 'USER_MANAGEMENT'],
+    features: ['PDF_SUPPORT', 'MANUAL_MARKING', 'GEMINI_INTEGRATION', 'REAL_ANALYSIS', 'USER_MANAGEMENT', 'ADMIN_MANAGEMENT'],
     geminiEnabled: geminiEnabled,
     services: {
       vision: 'active',
@@ -113,7 +113,244 @@ app.get('/api/test-vision', async (req, res) => {
   }
 });
 
-// NUEVOS ENDPOINTS DE GESTIÓN DE USUARIOS
+// NUEVOS ENDPOINTS DE GESTIÓN DE ADMINISTRADORES
+
+/**
+ * Crear o obtener un administrador
+ */
+app.post('/api/admins/create-or-get', async (req, res) => {
+  try {
+    console.log('👨‍💼 Creando o obteniendo administrador...');
+
+    const { nombreAdmin, email, rol } = req.body;
+
+    if (!nombreAdmin || nombreAdmin.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'El nombre del administrador es obligatorio',
+        error: 'MISSING_ADMIN_NAME'
+      });
+    }
+
+    if (!email || email.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'El email del administrador es obligatorio',
+        error: 'MISSING_ADMIN_EMAIL'
+      });
+    }
+
+    const nombreAdminLimpio = nombreAdmin.trim();
+    const emailLimpio = email.trim().toLowerCase();
+
+    // Buscar si el administrador ya existe por email
+    const adminsRef = db.collection('administradores');
+    const consultaExistente = await adminsRef.where('email', '==', emailLimpio).get();
+
+    if (!consultaExistente.empty) {
+      // Administrador ya existe, devolverlo
+      const adminExistente = consultaExistente.docs[0];
+      const adminData = adminExistente.data();
+
+      console.log(`✅ Administrador existente encontrado: ${nombreAdminLimpio}`);
+
+      return res.json({
+        success: true,
+        message: '👨‍💼 Administrador existente encontrado',
+        administrador: {
+          id: adminExistente.id,
+          nombreAdmin: adminData.nombreAdmin,
+          email: adminData.email,
+          rol: adminData.rol,
+          fechaCreacion: adminData.fechaCreacion.toDate().toISOString(),
+          estado: adminData.estado
+        },
+        esNuevo: false
+      });
+    }
+
+    // Crear nuevo administrador
+    const nuevoAdminId = uuidv4();
+    const nuevoAdmin = {
+      id: nuevoAdminId,
+      nombreAdmin: nombreAdminLimpio,
+      email: emailLimpio,
+      rol: rol || 'administrador',
+      fechaCreacion: new Date(),
+      fechaUltimoAcceso: null,
+      estado: 'activo'
+    };
+
+    await adminsRef.doc(nuevoAdminId).set(nuevoAdmin);
+
+    console.log(`✅ Nuevo administrador creado: ${nombreAdminLimpio}`);
+
+    res.json({
+      success: true,
+      message: '✅ Administrador creado exitosamente',
+      administrador: {
+        id: nuevoAdmin.id,
+        nombreAdmin: nuevoAdmin.nombreAdmin,
+        email: nuevoAdmin.email,
+        rol: nuevoAdmin.rol,
+        fechaCreacion: nuevoAdmin.fechaCreacion.toISOString(),
+        estado: nuevoAdmin.estado
+      },
+      esNuevo: true
+    });
+
+  } catch (error) {
+    console.error('❌ Error creando administrador:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error creando administrador',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+/**
+ * Listar todos los administradores
+ */
+app.get('/api/admins/list', async (req, res) => {
+  try {
+    console.log('📋 Listando administradores...');
+
+    const adminsRef = db.collection('administradores');
+    const snapshot = await adminsRef.orderBy('nombreAdmin', 'asc').get();
+
+    const administradores: any[] = [];
+
+    snapshot.forEach((doc) => {
+      const adminData = doc.data();
+      administradores.push({
+        id: doc.id,
+        nombreAdmin: adminData.nombreAdmin,
+        email: adminData.email,
+        rol: adminData.rol,
+        fechaCreacion: adminData.fechaCreacion.toDate().toISOString(),
+        fechaUltimoAcceso: adminData.fechaUltimoAcceso ? adminData.fechaUltimoAcceso.toDate().toISOString() : null,
+        estado: adminData.estado || 'activo'
+      });
+    });
+
+    console.log(`✅ Encontrados ${administradores.length} administradores`);
+
+    res.json({
+      success: true,
+      message: `📋 Encontrados ${administradores.length} administradores`,
+      administradores,
+      total: administradores.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error listando administradores:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error listando administradores',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+/**
+ * Actualizar estado de un administrador
+ */
+app.put('/api/admins/:adminId/update-status', async (req, res) => {
+  try {
+    console.log('🔄 Actualizando estado de administrador...');
+
+    const { adminId } = req.params;
+    const { estado } = req.body;
+
+    if (!estado || !['activo', 'inactivo'].includes(estado)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Estado debe ser "activo" o "inactivo"',
+        error: 'INVALID_STATUS'
+      });
+    }
+
+    const adminRef = db.collection('administradores').doc(adminId);
+    const adminDoc = await adminRef.get();
+
+    if (!adminDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Administrador no encontrado',
+        error: 'ADMIN_NOT_FOUND'
+      });
+    }
+
+    await adminRef.update({
+      estado: estado,
+      fechaUltimaActualizacion: new Date()
+    });
+
+    console.log(`✅ Estado del administrador ${adminId} actualizado a: ${estado}`);
+
+    res.json({
+      success: true,
+      message: `✅ Estado actualizado a: ${estado}`,
+      adminId: adminId,
+      nuevoEstado: estado
+    });
+
+  } catch (error) {
+    console.error('❌ Error actualizando estado del administrador:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error actualizando estado del administrador',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+/**
+ * Eliminar un administrador
+ */
+app.delete('/api/admins/:adminId', async (req, res) => {
+  try {
+    console.log('🗑️ Eliminando administrador...');
+
+    const { adminId } = req.params;
+
+    const adminRef = db.collection('administradores').doc(adminId);
+    const adminDoc = await adminRef.get();
+
+    if (!adminDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Administrador no encontrado',
+        error: 'ADMIN_NOT_FOUND'
+      });
+    }
+
+    const adminData = adminDoc.data();
+    await adminRef.delete();
+
+    console.log(`✅ Administrador eliminado: ${adminData?.nombreAdmin}`);
+
+    res.json({
+      success: true,
+      message: '✅ Administrador eliminado exitosamente',
+      adminEliminado: {
+        id: adminId,
+        nombreAdmin: adminData?.nombreAdmin
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error eliminando administrador:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error eliminando administrador',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+// ENDPOINTS DE GESTIÓN DE USUARIOS
 
 /**
  * Crear o obtener un usuario
@@ -1158,7 +1395,7 @@ async function startServer() {
   app.listen(PORT, () => {
     console.log(`🚀 DocuValle Backend v3.0 ejecutándose en puerto ${PORT}`);
     console.log(`🌐 Health check: http://localhost:${PORT}/api/health`);
-    console.log(`🤖 Funcionalidades: PDF Support + Manual Review + Gemini Integration + User Management`);
+    console.log(`🤖 Funcionalidades: PDF Support + Manual Review + Gemini Integration + User Management + Admin Management`);
     console.log(`🧠 Gemini: ${process.env.GEMINI_API_KEY ? 'HABILITADO' : 'DESHABILITADO'}`);
   });
 }

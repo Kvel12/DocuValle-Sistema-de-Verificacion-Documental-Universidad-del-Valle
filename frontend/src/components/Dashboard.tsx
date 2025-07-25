@@ -9,6 +9,7 @@ import {
 } from './charts';
 import { DocumentoProcesado } from './charts/UltimosDocumentosList';
 import DocumentosProcesados from './DocumentosProcesados';
+import AdministradoresProcesados from './Admin/AdministradoresProcesados';
 import { API_BASE_URL } from '../src/config/firebase';
 
 interface StatsResponse {
@@ -44,8 +45,6 @@ const Dashboard: React.FC = () => {
       }
     };
 
-  // Preparar datos para los componentes
-
     const fetchUltimos = async () => {
       try {
         const res = await axios.get(`${API_BASE_URL}/api/dashboard/ultimos`);
@@ -61,7 +60,7 @@ const Dashboard: React.FC = () => {
     fetchUltimos();
   }, []);
 
- 
+  // Preparar datos para los componentes
   const labels = stats?.tendenciaUltimos30Dias?.slice(-7).map(d => d.fecha) || [];
   const data = stats?.tendenciaUltimos30Dias?.slice(-7).map(d => d.cantidad) || [];
   const distribucion = {
@@ -234,13 +233,33 @@ const Dashboard: React.FC = () => {
         
       </div>
       
-      {/* Componente de Documentos Procesados - Con padding inferior */}
+      {/* Componente de Documentos Procesados - Con botones centrados */}
       <div style={{ paddingBottom: '3rem' }}>
-        <DocumentosProcesados 
-          apiBaseUrl={API_BASE_URL}
-          mostrarBotonAbrir={true} // El componente maneja su propio botón y lógica
-          titulo="📚 Documentos Procesados"
-        />
+        {/* NUEVA SECCIÓN: Botones de gestión centrados */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: '2rem',
+          flexWrap: 'wrap',
+          margin: '2rem auto',
+          maxWidth: '800px',
+          padding: '0 1rem'
+        }}>
+          {/* Componente de Documentos Procesados */}
+          <DocumentosProcesados 
+            apiBaseUrl={API_BASE_URL}
+            mostrarBotonAbrir={true}
+            titulo="📚 Documentos Procesados"
+          />
+
+          {/* NUEVO: Componente de Administradores */}
+          <AdministradoresProcesados 
+            apiBaseUrl={API_BASE_URL}
+            mostrarBotonAbrir={true}
+            titulo="👨‍💼 Administradores del Sistema"
+          />
+        </div>
       </div>
     </>
   );
