@@ -7,6 +7,7 @@ import {
   Legend,
   Title,
 } from 'chart.js';
+import './ChartCard.css';
 
 ChartJS.register(ArcElement, Tooltip, Legend, Title);
 
@@ -50,7 +51,11 @@ const DistribucionDocumentosChart: React.FC<DistribucionDocumentosChartProps> = 
     },
   };
 
-  return <Pie data={data} options={options} />;
+  return (
+    <div className="chart-card">
+      <Pie data={data} options={options} />
+    </div>
+  );
 };
 
 export default DistribucionDocumentosChart; 

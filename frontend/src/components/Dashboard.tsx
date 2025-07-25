@@ -8,6 +8,7 @@ import {
 } from './charts';
 import { DocumentoProcesado } from './charts/UltimosDocumentosList';
 import { API_BASE_URL } from '../src/config/firebase';
+import { useNavigate } from 'react-router-dom';
 
 interface StatsResponse {
   totalDocumentos: number;
@@ -22,6 +23,7 @@ const Dashboard: React.FC = () => {
   const [ultimosDocumentos, setUltimosDocumentos] = useState<DocumentoProcesado[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -68,8 +70,31 @@ const Dashboard: React.FC = () => {
     scorePromedio: stats?.scorePromedio || 0,
   };
 
+  const botonSubir = (
+    <button
+      onClick={() => navigate('/upload')}
+      style={{
+        borderRadius: '999px',
+        background: '#fff',
+        border: '1.5px solid #b0b0b0',
+        color: '#111',
+        fontWeight: 600,
+        fontSize: '1rem',
+        padding: '0.7rem 2.2rem',
+        margin: '1.5rem auto',
+        display: 'block',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+        transition: 'box-shadow 0.2s',
+        cursor: 'pointer',
+      }}
+    >
+      Subir Documento
+    </button>
+  );
+
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '2rem 1rem' }}>
+      {botonSubir}
       <h2>Dashboard Principal</h2>
       {loading ? (
         <p>Cargando estadísticas...</p>
@@ -86,8 +111,8 @@ const Dashboard: React.FC = () => {
               <DistribucionDocumentosChart {...distribucion} />
             </div>
           </div>
-          {/* Aquí se puede agregar la lista de últimos documentos cuando haya endpoint */}
           <UltimosDocumentosList documentos={ultimosDocumentos} />
+          {botonSubir}
         </>
       ) : null}
     </div>

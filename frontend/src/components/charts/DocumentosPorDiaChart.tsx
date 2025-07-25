@@ -9,6 +9,7 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
+import './ChartCard.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
@@ -44,7 +45,11 @@ const DocumentosPorDiaChart: React.FC<DocumentosPorDiaChartProps> = ({ labels, d
     },
   };
 
-  return <Bar data={chartData} options={options} />;
+  return (
+    <div className="chart-card">
+      <Bar data={chartData} options={options} />
+    </div>
+  );
 };
 
 export default DocumentosPorDiaChart; 

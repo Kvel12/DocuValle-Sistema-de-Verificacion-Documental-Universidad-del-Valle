@@ -18,8 +18,9 @@ function App() {
         </header>
         <main className="App-main">
           <Routes>
-            <Route path="/" element={<UploadDocumento />} />
+            <Route path="/" element={<Dashboard />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/upload" element={<UploadDocumento />} />
           </Routes>
         </main>
         <footer className="App-footer">

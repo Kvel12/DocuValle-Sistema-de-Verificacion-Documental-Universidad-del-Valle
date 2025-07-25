@@ -1,4 +1,5 @@
 import React from 'react';
+import './ChartCard.css';
 
 export interface DocumentoProcesado {
   id: string;
@@ -25,7 +26,7 @@ const estadoColor: Record<string, string> = {
 
 const UltimosDocumentosList: React.FC<UltimosDocumentosListProps> = ({ documentos }) => {
   return (
-    <div>
+    <div className="chart-card">
       <h4>Últimos 5 documentos procesados</h4>
       <ul style={{ listStyle: 'none', padding: 0 }}>
         {documentos.map((doc) => (
