@@ -6,6 +6,8 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -17,6 +19,10 @@ import { DocumentService } from './services/documentService';
 // Inicializamos la aplicación Express
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Configuración para JWT y bcrypt
+const JWT_SECRET = process.env.JWT_SECRET || 'docuvalle-secret-key-change-in-production';
+const BCRYPT_ROUNDS = 12;
 
 // Configuramos CORS
 app.use(cors({
@@ -53,6 +59,86 @@ const upload = multer({
 let visionService: VisionService;
 let documentService: DocumentService;
 
+// INTERFACES PARA ADMINISTRADORES
+interface AdministradorData {
+  id: string;
+  nombreAdmin: string;
+  email: string;
+  rol: string;
+  fechaCreacion: Date;
+  fechaUltimoAcceso?: Date | null;
+  estado: string;
+  password?: string; // Solo para operaciones internas, nunca se devuelve
+}
+
+interface AdministradorResponse {
+  id: string;
+  nombreAdmin: string;
+  email: string;
+  rol: string;
+  fechaCreacion: string;
+  fechaUltimoAcceso?: string | null;
+  estado: string;
+  // password NO se incluye nunca en las respuestas
+}
+
+// FUNCIONES AUXILIARES PARA CONTRASEÑAS
+
+/**
+ * Genera una contraseña temporal segura
+ */
+function generarPasswordTemporal(): string {
+  const caracteres = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const simbolos = '!@#$%&*';
+  let password = '';
+  
+  // Al menos 1 mayúscula, 1 minúscula, 1 número, 1 símbolo
+  password += caracteres.charAt(Math.floor(Math.random() * 26)); // Mayúscula
+  password += caracteres.charAt(26 + Math.floor(Math.random() * 26)); // Minúscula
+  password += caracteres.charAt(52 + Math.floor(Math.random() * 8)); // Número
+  password += simbolos.charAt(Math.floor(Math.random() * simbolos.length)); // Símbolo
+  
+  // Completar hasta 12 caracteres
+  for (let i = 4; i < 12; i++) {
+    const allChars = caracteres + simbolos;
+    password += allChars.charAt(Math.floor(Math.random() * allChars.length));
+  }
+  
+  // Mezclar los caracteres
+  return password.split('').sort(() => Math.random() - 0.5).join('');
+}
+
+/**
+ * Hashea una contraseña usando bcrypt
+ */
+async function hashPassword(password: string): Promise<string> {
+  return await bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+
+/**
+ * Verifica una contraseña contra su hash
+ */
+async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  return await bcrypt.compare(password, hash);
+}
+
+/**
+ * Limpia los datos del administrador para respuesta (remueve password)
+ */
+function limpiarDatosAdmin(adminData: any): AdministradorResponse {
+  const { password, ...adminLimpio } = adminData;
+  return {
+    ...adminLimpio,
+    fechaCreacion: adminData.fechaCreacion instanceof Date ? 
+      adminData.fechaCreacion.toISOString() : 
+      adminData.fechaCreacion.toDate().toISOString(),
+    fechaUltimoAcceso: adminData.fechaUltimoAcceso ? 
+      (adminData.fechaUltimoAcceso instanceof Date ? 
+        adminData.fechaUltimoAcceso.toISOString() : 
+        adminData.fechaUltimoAcceso.toDate().toISOString()) : null
+  };
+}
+
 // ENDPOINTS DE TESTING
 
 app.get('/api/health', (req, res) => {
@@ -63,14 +149,15 @@ app.get('/api/health', (req, res) => {
     message: '🚀 DocuValle Backend está funcionando correctamente',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    version: '3.0.0',
-    features: ['PDF_SUPPORT', 'MANUAL_MARKING', 'GEMINI_INTEGRATION', 'REAL_ANALYSIS', 'USER_MANAGEMENT', 'ADMIN_MANAGEMENT'],
+    version: '3.1.0',
+    features: ['PDF_SUPPORT', 'MANUAL_MARKING', 'GEMINI_INTEGRATION', 'REAL_ANALYSIS', 'USER_MANAGEMENT', 'ADMIN_MANAGEMENT', 'PASSWORD_AUTH'],
     geminiEnabled: geminiEnabled,
     services: {
       vision: 'active',
       gemini: geminiEnabled ? 'active' : 'disabled',
       firestore: 'active',
-      storage: 'active'
+      storage: 'active',
+      auth: 'active'
     }
   });
 });
@@ -79,7 +166,8 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    gemini: process.env.GEMINI_API_KEY ? 'enabled' : 'disabled'
+    gemini: process.env.GEMINI_API_KEY ? 'enabled' : 'disabled',
+    auth: 'enabled'
   });
 });
 
@@ -100,6 +188,10 @@ app.get('/api/test-vision', async (req, res) => {
       gemini: {
         status: process.env.GEMINI_API_KEY ? 'configured' : 'not_configured',
         message: process.env.GEMINI_API_KEY ? 'Gemini API Key configurada' : 'Gemini API Key no configurada'
+      },
+      auth: {
+        status: 'configured',
+        message: 'Sistema de autenticación configurado'
       }
     });
     
@@ -113,16 +205,180 @@ app.get('/api/test-vision', async (req, res) => {
   }
 });
 
-// NUEVOS ENDPOINTS DE GESTIÓN DE ADMINISTRADORES
+// NUEVOS ENDPOINTS DE AUTENTICACIÓN
 
 /**
- * Crear o obtener un administrador
+ * Login de administradores
+ */
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    console.log('🔐 Intento de login de administrador...');
+
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email y contraseña son obligatorios',
+        error: 'MISSING_CREDENTIALS'
+      });
+    }
+
+    const emailLimpio = email.trim().toLowerCase();
+
+    // Buscar administrador por email
+    const adminsRef = db.collection('administradores');
+    const consultaAdmin = await adminsRef.where('email', '==', emailLimpio).get();
+
+    if (consultaAdmin.empty) {
+      console.log(`❌ Login fallido: Email no encontrado: ${emailLimpio}`);
+      return res.status(401).json({
+        success: false,
+        message: 'Credenciales incorrectas',
+        error: 'INVALID_CREDENTIALS'
+      });
+    }
+
+    const adminDoc = consultaAdmin.docs[0];
+    const adminData = adminDoc.data();
+
+    // Verificar estado del administrador
+    if (adminData.estado !== 'activo') {
+      console.log(`❌ Login fallido: Administrador inactivo: ${emailLimpio}`);
+      return res.status(403).json({
+        success: false,
+        message: 'Cuenta de administrador desactivada',
+        error: 'ACCOUNT_DISABLED'
+      });
+    }
+
+    // Verificar contraseña
+    if (!adminData.passwordHash) {
+      console.log(`❌ Login fallido: No hay contraseña configurada para: ${emailLimpio}`);
+      return res.status(401).json({
+        success: false,
+        message: 'Contraseña no configurada. Contacte al super administrador.',
+        error: 'PASSWORD_NOT_SET'
+      });
+    }
+
+    const passwordValida = await verifyPassword(password, adminData.passwordHash);
+    if (!passwordValida) {
+      console.log(`❌ Login fallido: Contraseña incorrecta para: ${emailLimpio}`);
+      return res.status(401).json({
+        success: false,
+        message: 'Credenciales incorrectas',
+        error: 'INVALID_CREDENTIALS'
+      });
+    }
+
+    // Actualizar último acceso
+    await adminDoc.ref.update({
+      fechaUltimoAcceso: new Date()
+    });
+
+    // Generar JWT
+    const token = jwt.sign(
+      {
+        adminId: adminData.id,
+        email: adminData.email,
+        rol: adminData.rol,
+        nombreAdmin: adminData.nombreAdmin
+      },
+      JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+
+    console.log(`✅ Login exitoso: ${adminData.nombreAdmin} (${emailLimpio})`);
+
+    res.json({
+      success: true,
+      message: '✅ Login exitoso',
+      token,
+      administrador: limpiarDatosAdmin({
+        ...adminData,
+        fechaCreacion: adminData.fechaCreacion.toDate(),
+        fechaUltimoAcceso: new Date()
+      })
+    });
+
+  } catch (error) {
+    console.error('❌ Error en login:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error interno en login',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+/**
+ * Validar token JWT
+ */
+app.post('/api/auth/validate', async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token requerido',
+        error: 'MISSING_TOKEN'
+      });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    
+    // Verificar que el administrador aún existe y está activo
+    const adminDoc = await db.collection('administradores').doc(decoded.adminId).get();
+    
+    if (!adminDoc.exists) {
+      return res.status(401).json({
+        success: false,
+        message: 'Administrador no encontrado',
+        error: 'ADMIN_NOT_FOUND'
+      });
+    }
+
+    const adminData = adminDoc.data();
+    if (adminData?.estado !== 'activo') {
+      return res.status(401).json({
+        success: false,
+        message: 'Cuenta desactivada',
+        error: 'ACCOUNT_DISABLED'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Token válido',
+      administrador: limpiarDatosAdmin({
+        ...adminData,
+        fechaCreacion: adminData.fechaCreacion.toDate(),
+        fechaUltimoAcceso: adminData.fechaUltimoAcceso ? adminData.fechaUltimoAcceso.toDate() : null
+      })
+    });
+
+  } catch (error) {
+    console.error('❌ Error validando token:', error);
+    res.status(401).json({
+      success: false,
+      message: 'Token inválido',
+      error: 'INVALID_TOKEN'
+    });
+  }
+});
+
+// ENDPOINTS DE GESTIÓN DE ADMINISTRADORES ACTUALIZADOS
+
+/**
+ * Crear o obtener un administrador (ACTUALIZADO CON CONTRASEÑA)
  */
 app.post('/api/admins/create-or-get', async (req, res) => {
   try {
     console.log('👨‍💼 Creando o obteniendo administrador...');
 
-    const { nombreAdmin, email, rol } = req.body;
+    const { nombreAdmin, email, rol, password } = req.body;
 
     if (!nombreAdmin || nombreAdmin.trim() === '') {
       return res.status(400).json({
@@ -157,20 +413,22 @@ app.post('/api/admins/create-or-get', async (req, res) => {
       return res.json({
         success: true,
         message: '👨‍💼 Administrador existente encontrado',
-        administrador: {
-          id: adminExistente.id,
-          nombreAdmin: adminData.nombreAdmin,
-          email: adminData.email,
-          rol: adminData.rol,
-          fechaCreacion: adminData.fechaCreacion.toDate().toISOString(),
-          estado: adminData.estado
-        },
+        administrador: limpiarDatosAdmin({
+          ...adminData,
+          fechaCreacion: adminData.fechaCreacion.toDate(),
+          fechaUltimoAcceso: adminData.fechaUltimoAcceso ? adminData.fechaUltimoAcceso.toDate() : null
+        }),
         esNuevo: false
       });
     }
 
     // Crear nuevo administrador
     const nuevoAdminId = uuidv4();
+    
+    // Generar contraseña temporal si no se proporciona
+    const passwordFinal = password || generarPasswordTemporal();
+    const passwordHash = await hashPassword(passwordFinal);
+
     const nuevoAdmin = {
       id: nuevoAdminId,
       nombreAdmin: nombreAdminLimpio,
@@ -178,25 +436,25 @@ app.post('/api/admins/create-or-get', async (req, res) => {
       rol: rol || 'administrador',
       fechaCreacion: new Date(),
       fechaUltimoAcceso: null,
-      estado: 'activo'
+      estado: 'activo',
+      passwordHash: passwordHash
     };
 
     await adminsRef.doc(nuevoAdminId).set(nuevoAdmin);
 
     console.log(`✅ Nuevo administrador creado: ${nombreAdminLimpio}`);
+    console.log(`🔐 Contraseña temporal generada: ${passwordFinal}`);
 
     res.json({
       success: true,
       message: '✅ Administrador creado exitosamente',
-      administrador: {
-        id: nuevoAdmin.id,
-        nombreAdmin: nuevoAdmin.nombreAdmin,
-        email: nuevoAdmin.email,
-        rol: nuevoAdmin.rol,
-        fechaCreacion: nuevoAdmin.fechaCreacion.toISOString(),
-        estado: nuevoAdmin.estado
-      },
-      esNuevo: true
+      administrador: limpiarDatosAdmin({
+        ...nuevoAdmin,
+        fechaCreacion: nuevoAdmin.fechaCreacion,
+        fechaUltimoAcceso: null
+      }),
+      esNuevo: true,
+      passwordTemporal: password ? undefined : passwordFinal // Solo mostrar si fue generada automáticamente
     });
 
   } catch (error) {
@@ -210,7 +468,7 @@ app.post('/api/admins/create-or-get', async (req, res) => {
 });
 
 /**
- * Listar todos los administradores
+ * Listar todos los administradores (SIN CONTRASEÑAS)
  */
 app.get('/api/admins/list', async (req, res) => {
   try {
@@ -219,19 +477,15 @@ app.get('/api/admins/list', async (req, res) => {
     const adminsRef = db.collection('administradores');
     const snapshot = await adminsRef.orderBy('nombreAdmin', 'asc').get();
 
-    const administradores: any[] = [];
+    const administradores: AdministradorResponse[] = [];
 
     snapshot.forEach((doc) => {
       const adminData = doc.data();
-      administradores.push({
-        id: doc.id,
-        nombreAdmin: adminData.nombreAdmin,
-        email: adminData.email,
-        rol: adminData.rol,
-        fechaCreacion: adminData.fechaCreacion.toDate().toISOString(),
-        fechaUltimoAcceso: adminData.fechaUltimoAcceso ? adminData.fechaUltimoAcceso.toDate().toISOString() : null,
-        estado: adminData.estado || 'activo'
-      });
+      administradores.push(limpiarDatosAdmin({
+        ...adminData,
+        fechaCreacion: adminData.fechaCreacion.toDate(),
+        fechaUltimoAcceso: adminData.fechaUltimoAcceso ? adminData.fechaUltimoAcceso.toDate() : null
+      }));
     });
 
     console.log(`✅ Encontrados ${administradores.length} administradores`);
@@ -307,6 +561,124 @@ app.put('/api/admins/:adminId/update-status', async (req, res) => {
 });
 
 /**
+ * NUEVO: Cambiar contraseña de administrador
+ */
+app.put('/api/admins/:adminId/change-password', async (req, res) => {
+  try {
+    console.log('🔐 Cambiando contraseña de administrador...');
+
+    const { adminId } = req.params;
+    const { nuevaPassword, passwordActual } = req.body;
+
+    if (!nuevaPassword || nuevaPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'La nueva contraseña debe tener al menos 6 caracteres',
+        error: 'INVALID_PASSWORD'
+      });
+    }
+
+    const adminRef = db.collection('administradores').doc(adminId);
+    const adminDoc = await adminRef.get();
+
+    if (!adminDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Administrador no encontrado',
+        error: 'ADMIN_NOT_FOUND'
+      });
+    }
+
+    const adminData = adminDoc.data();
+
+    // Si tiene contraseña actual, verificarla
+    if (adminData.passwordHash && passwordActual) {
+      const passwordValida = await verifyPassword(passwordActual, adminData.passwordHash);
+      if (!passwordValida) {
+        return res.status(401).json({
+          success: false,
+          message: 'Contraseña actual incorrecta',
+          error: 'INVALID_CURRENT_PASSWORD'
+        });
+      }
+    }
+
+    // Hashear nueva contraseña
+    const nuevaPasswordHash = await hashPassword(nuevaPassword);
+
+    await adminRef.update({
+      passwordHash: nuevaPasswordHash,
+      fechaUltimaActualizacion: new Date()
+    });
+
+    console.log(`✅ Contraseña actualizada para administrador ${adminId}`);
+
+    res.json({
+      success: true,
+      message: '✅ Contraseña actualizada exitosamente',
+      adminId: adminId
+    });
+
+  } catch (error) {
+    console.error('❌ Error cambiando contraseña:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error cambiando contraseña',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+/**
+ * NUEVO: Resetear contraseña de administrador (genera una nueva temporal)
+ */
+app.put('/api/admins/:adminId/reset-password', async (req, res) => {
+  try {
+    console.log('🔄 Reseteando contraseña de administrador...');
+
+    const { adminId } = req.params;
+
+    const adminRef = db.collection('administradores').doc(adminId);
+    const adminDoc = await adminRef.get();
+
+    if (!adminDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Administrador no encontrado',
+        error: 'ADMIN_NOT_FOUND'
+      });
+    }
+
+    // Generar nueva contraseña temporal
+    const nuevaPasswordTemporal = generarPasswordTemporal();
+    const nuevaPasswordHash = await hashPassword(nuevaPasswordTemporal);
+
+    await adminRef.update({
+      passwordHash: nuevaPasswordHash,
+      fechaUltimaActualizacion: new Date()
+    });
+
+    const adminData = adminDoc.data();
+    console.log(`✅ Contraseña reseteada para administrador ${adminData.nombreAdmin}`);
+
+    res.json({
+      success: true,
+      message: '✅ Contraseña reseteada exitosamente',
+      adminId: adminId,
+      passwordTemporal: nuevaPasswordTemporal
+    });
+
+  } catch (error) {
+    console.error('❌ Error reseteando contraseña:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error reseteando contraseña',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+/**
  * Eliminar un administrador
  */
 app.delete('/api/admins/:adminId', async (req, res) => {
@@ -350,7 +722,59 @@ app.delete('/api/admins/:adminId', async (req, res) => {
   }
 });
 
-// ENDPOINTS DE GESTIÓN DE USUARIOS
+/**
+ * NUEVO: Migración para administradores existentes sin contraseña
+ */
+app.post('/api/admins/migrate-passwords', async (req, res) => {
+  try {
+    console.log('🔄 Migrando administradores sin contraseña...');
+
+    const adminsRef = db.collection('administradores');
+    const snapshot = await adminsRef.get();
+
+    let adminsMigrados = 0;
+    const passwordsGeneradas: { [key: string]: string } = {};
+
+    for (const doc of snapshot.docs) {
+      const adminData = doc.data();
+      
+      // Solo migrar si no tiene passwordHash
+      if (!adminData.passwordHash) {
+        const passwordTemporal = generarPasswordTemporal();
+        const passwordHash = await hashPassword(passwordTemporal);
+
+        await doc.ref.update({
+          passwordHash: passwordHash,
+          fechaUltimaActualizacion: new Date()
+        });
+
+        passwordsGeneradas[adminData.nombreAdmin] = passwordTemporal;
+        adminsMigrados++;
+        
+        console.log(`✅ Migrado: ${adminData.nombreAdmin}`);
+      }
+    }
+
+    console.log(`✅ Migración completada: ${adminsMigrados} administradores`);
+
+    res.json({
+      success: true,
+      message: `✅ Migración completada: ${adminsMigrados} administradores`,
+      adminsMigrados,
+      passwordsGeneradas: Object.keys(passwordsGeneradas).length > 0 ? passwordsGeneradas : undefined
+    });
+
+  } catch (error) {
+    console.error('❌ Error en migración:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error en migración',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+// ENDPOINTS DE GESTIÓN DE USUARIOS (SIN CAMBIOS)
 
 /**
  * Crear o obtener un usuario
@@ -479,7 +903,7 @@ app.get('/api/users/list', async (req, res) => {
   }
 });
 
-// ENDPOINTS PRINCIPALES
+// ENDPOINTS PRINCIPALES (SIN CAMBIOS MAYORES)
 
 app.post('/api/documents/upload', upload.single('archivo'), async (req, res) => {
   try {
@@ -552,7 +976,7 @@ app.post('/api/documents/upload', upload.single('archivo'), async (req, res) => 
 });
 
 /**
- * ENDPOINT PRINCIPAL CORREGIDO: Análisis real con Vision + Gemini
+ * ENDPOINT PRINCIPAL: Análisis real con Vision + Gemini
  */
 app.post('/api/documents/analyze', async (req, res) => {
   try {
@@ -746,6 +1170,8 @@ app.post('/api/documents/analyze', async (req, res) => {
   }
 });
 
+// RESTO DE ENDPOINTS (SIN CAMBIOS)
+
 // ENDPOINT: Marcado manual de documentos
 app.post('/api/documents/:documentoId/manual-review', async (req, res) => {
   try {
@@ -817,7 +1243,7 @@ app.post('/api/documents/:documentoId/manual-review', async (req, res) => {
 });
 
 /**
- * ENDPOINT MEJORADO: Asignar documento a usuario (actualizado)
+ * ENDPOINT: Asignar documento a usuario
  */
 app.post('/api/documents/:documentoId/assign', async (req, res) => {
   try {
@@ -906,7 +1332,7 @@ app.post('/api/documents/:documentoId/assign', async (req, res) => {
 });
 
 /**
- * ENDPOINT CORREGIDO: Búsqueda de documentos (más flexible)
+ * ENDPOINT: Búsqueda de documentos
  */
 app.post('/api/documents/search', async (req, res) => {
   try {
@@ -1024,7 +1450,7 @@ app.get('/api/documents/:documentoId/details', async (req, res) => {
       fechaRevisionManual: data.fechaRevisionManual ? data.fechaRevisionManual.toDate().toISOString() : null,
       estadoRevision: data.estadoRevision,
       
-      // NUEVO: Análisis Gemini
+      // Análisis Gemini
       analisisGemini: data.analisisGemini || null,
       
       estado: data.estado
@@ -1049,7 +1475,7 @@ app.get('/api/documents/:documentoId/details', async (req, res) => {
 });
 
 /**
- * ENDPOINT: Obtener documentos de un usuario con filtros avanzados (de features_Nicolas)
+ * ENDPOINT: Obtener documentos de un usuario con filtros avanzados
  */
 app.post('/api/documents/user-documents', async (req, res) => {
   try {
@@ -1174,10 +1600,10 @@ app.get('/api/dashboard/ultimos', async (req, res) => {
   }
 });
 
-// FUNCIONES AUXILIARES CORREGIDAS
+// FUNCIONES AUXILIARES
 
 /**
- * NUEVO: Algoritmo híbrido que combina Vision API + Gemini de manera inteligente
+ * Algoritmo híbrido que combina Vision API + Gemini de manera inteligente
  */
 async function calcularScoreAutenticidadHibrido(analisisVisual: AnalisisVisual, tipoArchivo: string) {
   console.log('📊 Calculando score híbrido (Vision + Gemini)...');
@@ -1350,11 +1776,78 @@ function getRecomendacionTexto(recomendacion: string): string {
   }
 }
 
+/**
+ * ENDPOINT TEMPORAL: Crear administrador de prueba
+ * Solo para desarrollo - remover en producción
+ */
+app.post('/api/admin/create-test-admin', async (req, res) => {
+  try {
+    console.log('🧪 Creando administrador de prueba...');
+
+    const testAdminEmail = 'admin@example.com';
+    const testAdminPassword = '1234';
+
+    // Verificar si ya existe
+    const adminsRef = db.collection('administradores');
+    const existingAdmin = await adminsRef.where('email', '==', testAdminEmail).get();
+
+    if (!existingAdmin.empty) {
+      console.log('✅ Administrador de prueba ya existe');
+      return res.json({
+        success: true,
+        message: '✅ Administrador de prueba ya existe',
+        admin: {
+          email: testAdminEmail,
+          password: testAdminPassword
+        }
+      });
+    }
+
+    // Crear administrador de prueba
+    const testAdminId = uuidv4();
+    const passwordHash = await hashPassword(testAdminPassword);
+
+    const testAdmin = {
+      id: testAdminId,
+      nombreAdmin: 'Administrador de Prueba',
+      email: testAdminEmail,
+      rol: 'super_admin',
+      fechaCreacion: new Date(),
+      fechaUltimoAcceso: null,
+      estado: 'activo',
+      passwordHash: passwordHash
+    };
+
+    await adminsRef.doc(testAdminId).set(testAdmin);
+
+    console.log('✅ Administrador de prueba creado exitosamente');
+
+    res.json({
+      success: true,
+      message: '✅ Administrador de prueba creado exitosamente',
+      admin: {
+        id: testAdminId,
+        email: testAdminEmail,
+        password: testAdminPassword,
+        rol: 'super_admin'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error creando administrador de prueba:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error creando administrador de prueba',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
 // INICIALIZACIÓN
 
 async function initializeServices() {
   try {
-    console.log('🔄 Inicializando servicios de DocuValle v3.0...');
+    console.log('🔄 Inicializando servicios de DocuValle v3.1...');
     
     initializeFirebaseAdmin();
     console.log('✅ Firebase Admin inicializado');
@@ -1371,8 +1864,16 @@ async function initializeServices() {
     } else {
       console.log('⚠️ Gemini API Key no configurada - funcionando solo con Vision API');
     }
+
+    // Verificar configuración de JWT
+    if (process.env.JWT_SECRET) {
+      console.log('✅ JWT Secret configurado correctamente');
+    } else {
+      console.log('⚠️ JWT Secret usando valor por defecto - configura JWT_SECRET en producción');
+    }
     
     console.log('🎉 Todos los servicios inicializados correctamente');
+    console.log('🔐 Sistema de autenticación con contraseñas habilitado');
   } catch (error) {
     console.error('❌ Error inicializando servicios:', error);
     process.exit(1);
@@ -1393,10 +1894,15 @@ async function startServer() {
   await initializeServices();
   
   app.listen(PORT, () => {
-    console.log(`🚀 DocuValle Backend v3.0 ejecutándose en puerto ${PORT}`);
+    console.log(`🚀 DocuValle Backend v3.1 ejecutándose en puerto ${PORT}`);
     console.log(`🌐 Health check: http://localhost:${PORT}/api/health`);
-    console.log(`🤖 Funcionalidades: PDF Support + Manual Review + Gemini Integration + User Management + Admin Management`);
+    console.log(`🤖 Funcionalidades: PDF Support + Manual Review + Gemini Integration + User Management + Admin Management + Password Auth`);
     console.log(`🧠 Gemini: ${process.env.GEMINI_API_KEY ? 'HABILITADO' : 'DESHABILITADO'}`);
+    console.log(`🔐 Autenticación: HABILITADA`);
+    console.log(`📋 Endpoints de autenticación:`);
+    console.log(`   - POST /api/auth/login - Login de administradores`);
+    console.log(`   - POST /api/auth/validate - Validar token JWT`);
+    console.log(`   - POST /api/admins/migrate-passwords - Migrar contraseñas existentes`);
   });
 }
 

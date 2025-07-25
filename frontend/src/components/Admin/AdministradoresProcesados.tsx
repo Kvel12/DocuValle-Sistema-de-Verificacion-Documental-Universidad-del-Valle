@@ -38,10 +38,13 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
   const [nuevoAdmin, setNuevoAdmin] = useState({
     nombreAdmin: '',
     email: '',
-    rol: 'administrador'
+    rol: 'administrador',
+    password: '',
+    generarPasswordAutomatica: true
   });
   const [mostrarCrearAdmin, setMostrarCrearAdmin] = useState(false);
   const [creandoAdmin, setCreandoAdmin] = useState(false);
+  const [passwordGenerada, setPasswordGenerada] = useState<string | null>(null);
 
   // Estados para actualizar estado
   const [adminSeleccionado, setAdminSeleccionado] = useState<Administrador | null>(null);
@@ -52,6 +55,30 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
   // Estados para eliminar
   const [mostrarModalEliminar, setMostrarModalEliminar] = useState(false);
   const [eliminandoAdmin, setEliminandoAdmin] = useState(false);
+
+  // Estados para cambiar contraseña
+  const [mostrarModalPassword, setMostrarModalPassword] = useState(false);
+  const [datosPassword, setDatosPassword] = useState({
+    nuevaPassword: '',
+    confirmarPassword: '',
+    passwordActual: ''
+  });
+  const [cambiandoPassword, setCambiandoPassword] = useState(false);
+  const [mostrarPasswords, setMostrarPasswords] = useState({
+    nueva: false,
+    confirmar: false,
+    actual: false
+  });
+
+  // Estados para resetear contraseña
+  const [mostrarModalReset, setMostrarModalReset] = useState(false);
+  const [reseteandoPassword, setReseteandoPassword] = useState(false);
+  const [passwordReseteada, setPasswordReseteada] = useState<string | null>(null);
+
+  // Estados para migración
+  const [mostrarModalMigracion, setMostrarModalMigracion] = useState(false);
+  const [migrandoPasswords, setMigrandoPasswords] = useState(false);
+  const [resultadoMigracion, setResultadoMigracion] = useState<any>(null);
 
   // Estados para paginación
   const [paginaActual, setPaginaActual] = useState(1);
@@ -109,24 +136,50 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
       return;
     }
 
+    // Validar contraseña si no es automática
+    if (!nuevoAdmin.generarPasswordAutomatica) {
+      if (!nuevoAdmin.password.trim() || nuevoAdmin.password.length < 6) {
+        mostrarError('La contraseña debe tener al menos 6 caracteres');
+        return;
+      }
+    }
+
     setCreandoAdmin(true);
     try {
-      const response = await axios.post(`${apiBaseUrl}/api/admins/create-or-get`, {
+      const datosCreacion: any = {
         nombreAdmin: nuevoAdmin.nombreAdmin.trim(),
         email: nuevoAdmin.email.trim(),
         rol: nuevoAdmin.rol
-      });
+      };
+
+      // Solo incluir password si no es automática
+      if (!nuevoAdmin.generarPasswordAutomatica && nuevoAdmin.password.trim()) {
+        datosCreacion.password = nuevoAdmin.password.trim();
+      }
+
+      const response = await axios.post(`${apiBaseUrl}/api/admins/create-or-get`, datosCreacion);
 
       if (response.data.success) {
         if (response.data.esNuevo) {
           mostrarExito(`✅ Administrador "${nuevoAdmin.nombreAdmin}" creado exitosamente`);
+          
+          // Mostrar contraseña temporal si fue generada automáticamente
+          if (response.data.passwordTemporal) {
+            setPasswordGenerada(response.data.passwordTemporal);
+          }
         } else {
           mostrarExito(`ℹ️ Administrador "${nuevoAdmin.nombreAdmin}" ya existía`);
         }
         
         // Recargar administradores y limpiar formulario
         await cargarAdministradores();
-        setNuevoAdmin({ nombreAdmin: '', email: '', rol: 'administrador' });
+        setNuevoAdmin({ 
+          nombreAdmin: '', 
+          email: '', 
+          rol: 'administrador', 
+          password: '', 
+          generarPasswordAutomatica: true 
+        });
         setMostrarCrearAdmin(false);
       }
     } catch (error: any) {
@@ -159,6 +212,83 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
       mostrarError(mensajeError);
     } finally {
       setActualizandoEstado(false);
+    }
+  };
+
+  // Función para cambiar contraseña
+  const cambiarPassword = async () => {
+    if (!adminSeleccionado) return;
+
+    if (!datosPassword.nuevaPassword || datosPassword.nuevaPassword.length < 6) {
+      mostrarError('La nueva contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+
+    if (datosPassword.nuevaPassword !== datosPassword.confirmarPassword) {
+      mostrarError('Las contraseñas no coinciden');
+      return;
+    }
+
+    setCambiandoPassword(true);
+    try {
+      const response = await axios.put(`${apiBaseUrl}/api/admins/${adminSeleccionado.id}/change-password`, {
+        nuevaPassword: datosPassword.nuevaPassword,
+        passwordActual: datosPassword.passwordActual || undefined
+      });
+
+      if (response.data.success) {
+        mostrarExito('✅ Contraseña actualizada exitosamente');
+        setMostrarModalPassword(false);
+        setDatosPassword({ nuevaPassword: '', confirmarPassword: '', passwordActual: '' });
+      }
+    } catch (error: any) {
+      console.error('❌ Error cambiando contraseña:', error);
+      const mensajeError = error.response?.data?.message || 'Error cambiando contraseña';
+      mostrarError(mensajeError);
+    } finally {
+      setCambiandoPassword(false);
+    }
+  };
+
+  // Función para resetear contraseña
+  const resetearPassword = async () => {
+    if (!adminSeleccionado) return;
+
+    setReseteandoPassword(true);
+    try {
+      const response = await axios.put(`${apiBaseUrl}/api/admins/${adminSeleccionado.id}/reset-password`);
+
+      if (response.data.success) {
+        setPasswordReseteada(response.data.passwordTemporal);
+        mostrarExito('✅ Contraseña reseteada exitosamente');
+        // No cerrar el modal aún para mostrar la nueva contraseña
+      }
+    } catch (error: any) {
+      console.error('❌ Error reseteando contraseña:', error);
+      const mensajeError = error.response?.data?.message || 'Error reseteando contraseña';
+      mostrarError(mensajeError);
+    } finally {
+      setReseteandoPassword(false);
+    }
+  };
+
+  // Función para migrar contraseñas
+  const migrarPasswords = async () => {
+    setMigrandoPasswords(true);
+    try {
+      const response = await axios.post(`${apiBaseUrl}/api/admins/migrate-passwords`);
+
+      if (response.data.success) {
+        setResultadoMigracion(response.data);
+        mostrarExito(`✅ Migración completada: ${response.data.adminsMigrados} administradores`);
+        await cargarAdministradores();
+      }
+    } catch (error: any) {
+      console.error('❌ Error en migración:', error);
+      const mensajeError = error.response?.data?.message || 'Error en migración';
+      mostrarError(mensajeError);
+    } finally {
+      setMigrandoPasswords(false);
     }
   };
 
@@ -379,9 +509,32 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
     setMostrarModalEliminar(true);
   };
 
+  // Función para abrir modal de contraseña
+  const abrirModalPassword = (admin: Administrador) => {
+    setAdminSeleccionado(admin);
+    setDatosPassword({ nuevaPassword: '', confirmarPassword: '', passwordActual: '' });
+    setMostrarModalPassword(true);
+  };
+
+  // Función para abrir modal de reset
+  const abrirModalReset = (admin: Administrador) => {
+    setAdminSeleccionado(admin);
+    setPasswordReseteada(null);
+    setMostrarModalReset(true);
+  };
+
   // Función para obtener el color del estado
   const getEstadoColor = (estado: string): string => {
     return estado === 'activo' ? '#4caf50' : '#f44336';
+  };
+
+  // Función para copiar al portapapeles
+  const copiarAlPortapapeles = (texto: string) => {
+    navigator.clipboard.writeText(texto).then(() => {
+      mostrarExito('✅ Contraseña copiada al portapapeles');
+    }).catch(() => {
+      mostrarError('❌ Error copiando al portapapeles');
+    });
   };
 
   return (
@@ -437,7 +590,7 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
             borderRadius: '16px',
             padding: '32px',
             width: '95vw',
-            maxWidth: '1200px',
+            maxWidth: '1400px',
             maxHeight: '90vh',
             overflowY: 'auto',
             boxShadow: '0 15px 50px rgba(0,0,0,0.3)'
@@ -546,6 +699,68 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
               </div>
             )}
 
+            {/* Mostrar contraseña generada */}
+            {passwordGenerada && (
+              <div style={{
+                background: 'linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%)',
+                border: '2px solid #ff9800',
+                borderRadius: '12px',
+                padding: '16px',
+                marginBottom: '20px',
+                color: '#e65100'
+              }}>
+                <h4 style={{ margin: '0 0 12px 0', color: '#e65100', fontWeight: '600' }}>
+                  🔑 Contraseña Temporal Generada
+                </h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                  <code style={{
+                    background: 'rgba(230, 81, 0, 0.1)',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    fontSize: '1.1rem',
+                    fontWeight: '600',
+                    border: '1px solid rgba(230, 81, 0, 0.3)',
+                    flex: 1
+                  }}>
+                    {passwordGenerada}
+                  </code>
+                  <button
+                    onClick={() => copiarAlPortapapeles(passwordGenerada)}
+                    style={{
+                      background: 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem',
+                      fontWeight: '500'
+                    }}
+                  >
+                    📋 Copiar
+                  </button>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.85rem', fontStyle: 'italic' }}>
+                  ⚠️ Guarde esta contraseña de forma segura. El administrador deberá cambiarla en su primer acceso.
+                </p>
+                <button
+                  onClick={() => setPasswordGenerada(null)}
+                  style={{
+                    marginTop: '12px',
+                    background: 'linear-gradient(135deg, #6c757d 0%, #495057 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem'
+                  }}
+                >
+                  ✕ Cerrar
+                </button>
+              </div>
+            )}
+
             {/* Controles */}
             <div style={{
               background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
@@ -586,7 +801,14 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
                 <button
                   onClick={() => {
                     if (mostrarCrearAdmin) {
-                      setNuevoAdmin({ nombreAdmin: '', email: '', rol: 'administrador' });
+                      setNuevoAdmin({ 
+                        nombreAdmin: '', 
+                        email: '', 
+                        rol: 'administrador', 
+                        password: '', 
+                        generarPasswordAutomatica: true 
+                      });
+                      setPasswordGenerada(null);
                     }
                     setMostrarCrearAdmin(!mostrarCrearAdmin);
                   }}
@@ -603,6 +825,23 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
                   }}
                 >
                   {mostrarCrearAdmin ? '❌ Cancelar' : '➕ Nuevo Administrador'}
+                </button>
+
+                <button
+                  onClick={() => setMostrarModalMigracion(true)}
+                  style={{
+                    background: 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '12px 24px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  🔑 Migrar Contraseñas
                 </button>
 
                 <span style={{ 
@@ -724,11 +963,75 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
                       </select>
                     </div>
                   </div>
+
+                  {/* Configuración de contraseña */}
+                  <div style={{ marginBottom: '16px', padding: '16px', background: '#f8f9fa', borderRadius: '8px' }}>
+                    <h5 style={{ margin: '0 0 12px 0', color: '#495057', fontSize: '0.9rem' }}>
+                      🔐 Configuración de Contraseña
+                    </h5>
+                    
+                    <div style={{ marginBottom: '12px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={nuevoAdmin.generarPasswordAutomatica}
+                          onChange={(e) => setNuevoAdmin(prev => ({ 
+                            ...prev, 
+                            generarPasswordAutomatica: e.target.checked,
+                            password: e.target.checked ? '' : prev.password
+                          }))}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <span style={{ fontSize: '0.9rem', color: '#495057' }}>
+                          Generar contraseña temporal automáticamente (recomendado)
+                        </span>
+                      </label>
+                    </div>
+
+                    {!nuevoAdmin.generarPasswordAutomatica && (
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          marginBottom: '6px', 
+                          fontWeight: '500', 
+                          color: '#495057',
+                          fontSize: '0.9rem'
+                        }}>
+                          Contraseña personalizada (mínimo 6 caracteres)
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="Ingrese contraseña personalizada"
+                          value={nuevoAdmin.password}
+                          onChange={(e) => setNuevoAdmin(prev => ({ ...prev, password: e.target.value }))}
+                          style={{
+                            width: '100%',
+                            padding: '12px 14px',
+                            border: '2px solid #dee2e6',
+                            borderRadius: '8px',
+                            fontSize: '0.9rem',
+                            transition: 'border-color 0.3s ease',
+                            boxSizing: 'border-box'
+                          }}
+                          onFocus={(e) => e.target.style.borderColor = '#9c27b0'}
+                          onBlur={(e) => e.target.style.borderColor = '#dee2e6'}
+                        />
+                      </div>
+                    )}
+                  </div>
+
                   <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                     <button
                       onClick={() => {
                         setMostrarCrearAdmin(false);
-                        setNuevoAdmin({ nombreAdmin: '', email: '', rol: 'administrador' });
+                        setNuevoAdmin({ 
+                          nombreAdmin: '', 
+                          email: '', 
+                          rol: 'administrador', 
+                          password: '', 
+                          generarPasswordAutomatica: true 
+                        });
+                        setPasswordGenerada(null);
                       }}
                       style={{
                         background: 'linear-gradient(135deg, #6c757d 0%, #495057 100%)',
@@ -746,9 +1049,13 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
                     </button>
                     <button
                       onClick={crearAdministrador}
-                      disabled={!nuevoAdmin.nombreAdmin.trim() || !nuevoAdmin.email.trim() || creandoAdmin}
+                      disabled={!nuevoAdmin.nombreAdmin.trim() || !nuevoAdmin.email.trim() || 
+                               (!nuevoAdmin.generarPasswordAutomatica && !nuevoAdmin.password.trim()) || 
+                               creandoAdmin}
                       style={{
-                        background: (!nuevoAdmin.nombreAdmin.trim() || !nuevoAdmin.email.trim() || creandoAdmin) ? 
+                        background: (!nuevoAdmin.nombreAdmin.trim() || !nuevoAdmin.email.trim() || 
+                                   (!nuevoAdmin.generarPasswordAutomatica && !nuevoAdmin.password.trim()) || 
+                                   creandoAdmin) ? 
                           'linear-gradient(135deg, #ccc 0%, #aaa 100%)' :
                           'linear-gradient(135deg, #4caf50 0%, #388e3c 100%)',
                         color: 'white',
@@ -756,9 +1063,13 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
                         borderRadius: '8px',
                         padding: '10px 20px',
                         fontWeight: '600',
-                        cursor: (!nuevoAdmin.nombreAdmin.trim() || !nuevoAdmin.email.trim() || creandoAdmin) ? 'not-allowed' : 'pointer',
+                        cursor: (!nuevoAdmin.nombreAdmin.trim() || !nuevoAdmin.email.trim() || 
+                                (!nuevoAdmin.generarPasswordAutomatica && !nuevoAdmin.password.trim()) || 
+                                creandoAdmin) ? 'not-allowed' : 'pointer',
                         fontSize: '0.9rem',
-                        opacity: (!nuevoAdmin.nombreAdmin.trim() || !nuevoAdmin.email.trim() || creandoAdmin) ? 0.7 : 1,
+                        opacity: (!nuevoAdmin.nombreAdmin.trim() || !nuevoAdmin.email.trim() || 
+                                 (!nuevoAdmin.generarPasswordAutomatica && !nuevoAdmin.password.trim()) || 
+                                 creandoAdmin) ? 0.7 : 1,
                         transition: 'all 0.3s ease'
                       }}
                     >
@@ -809,7 +1120,7 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
                           Estado
                         </th>
                         <th style={{ padding: '16px 12px', textAlign: 'left', fontWeight: '600', color: '#495057', fontSize: '0.9rem' }}>
-                          Fecha Creación
+                          Último Acceso
                         </th>
                         <th style={{ padding: '16px 12px', textAlign: 'left', fontWeight: '600', color: '#495057', fontSize: '0.9rem' }}>
                           Acciones
@@ -885,10 +1196,13 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
                             </span>
                           </td>
                           <td style={{ padding: '12px', fontSize: '0.8rem', color: '#6c757d' }}>
-                            {new Date(admin.fechaCreacion).toLocaleDateString()}
+                            {admin.fechaUltimoAcceso ? 
+                              new Date(admin.fechaUltimoAcceso).toLocaleDateString() : 
+                              'Nunca'
+                            }
                           </td>
                           <td style={{ padding: '12px' }}>
-                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                               <button
                                 onClick={() => abrirModalEstado(admin)}
                                 style={{
@@ -896,22 +1210,51 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
                                   color: 'white',
                                   border: 'none',
                                   borderRadius: '6px',
-                                  padding: '6px 12px',
+                                  padding: '6px 10px',
                                   fontSize: '0.8rem',
                                   fontWeight: '500',
                                   cursor: 'pointer',
                                   transition: 'all 0.2s ease'
                                 }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.transform = 'translateY(-1px)';
-                                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(255, 152, 0, 0.3)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.transform = 'translateY(0)';
-                                  e.currentTarget.style.boxShadow = 'none';
-                                }}
+                                title="Cambiar estado"
                               >
-                                🔄 Estado
+                                🔄
+                              </button>
+                              
+                              <button
+                                onClick={() => abrirModalPassword(admin)}
+                                style={{
+                                  background: 'linear-gradient(135deg, #2196f3 0%, #1976d2 100%)',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '6px',
+                                  padding: '6px 10px',
+                                  fontSize: '0.8rem',
+                                  fontWeight: '500',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s ease'
+                                }}
+                                title="Cambiar contraseña"
+                              >
+                                🔐
+                              </button>
+
+                              <button
+                                onClick={() => abrirModalReset(admin)}
+                                style={{
+                                  background: 'linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%)',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '6px',
+                                  padding: '6px 10px',
+                                  fontSize: '0.8rem',
+                                  fontWeight: '500',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s ease'
+                                }}
+                                title="Resetear contraseña"
+                              >
+                                🔄
                               </button>
                               
                               <button
@@ -921,22 +1264,15 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
                                   color: 'white',
                                   border: 'none',
                                   borderRadius: '6px',
-                                  padding: '6px 12px',
+                                  padding: '6px 10px',
                                   fontSize: '0.8rem',
                                   fontWeight: '500',
                                   cursor: 'pointer',
                                   transition: 'all 0.2s ease'
                                 }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.transform = 'translateY(-1px)';
-                                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(244, 67, 54, 0.3)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.transform = 'translateY(0)';
-                                  e.currentTarget.style.boxShadow = 'none';
-                                }}
+                                title="Eliminar administrador"
                               >
-                                🗑️ Eliminar
+                                🗑️
                               </button>
                             </div>
                           </td>
@@ -979,7 +1315,7 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
                 )}
                 <br />
                 <small style={{ color: '#6c757d' }}>
-                  Última actualización: {new Date().toLocaleTimeString()}
+                  🔐 Sistema de autenticación con contraseñas habilitado | Última actualización: {new Date().toLocaleTimeString()}
                 </small>
               </div>
             )}
@@ -1110,6 +1446,375 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
         </div>
       )}
 
+      {/* Modal de cambiar contraseña */}
+      {mostrarModalPassword && adminSeleccionado && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: 'rgba(0,0,0,0.6)',
+          zIndex: 1001,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backdropFilter: 'blur(5px)'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            padding: '28px',
+            maxWidth: '500px',
+            width: '90%',
+            boxShadow: '0 15px 50px rgba(0,0,0,0.3)'
+          }}>
+            <h3 style={{ 
+              margin: '0 0 20px 0', 
+              color: '#2196f3', 
+              textAlign: 'center',
+              fontSize: '1.3rem',
+              fontWeight: '600'
+            }}>
+              🔐 Cambiar Contraseña
+            </h3>
+            
+            <div style={{ marginBottom: '20px', padding: '16px', background: '#f8f9fa', borderRadius: '8px' }}>
+              <p style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: '#495057' }}>
+                <strong>Administrador:</strong> {adminSeleccionado.nombreAdmin}
+              </p>
+              <p style={{ margin: 0, fontSize: '0.9rem', color: '#495057' }}>
+                <strong>Email:</strong> {adminSeleccionado.email}
+              </p>
+            </div>
+            
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ 
+                display: 'block', 
+                marginBottom: '8px', 
+                fontWeight: '500', 
+                color: '#495057',
+                fontSize: '0.9rem'
+              }}>
+                Nueva Contraseña (mínimo 6 caracteres)
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={mostrarPasswords.nueva ? 'text' : 'password'}
+                  value={datosPassword.nuevaPassword}
+                  onChange={(e) => setDatosPassword(prev => ({ ...prev, nuevaPassword: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '12px 40px 12px 12px',
+                    border: '2px solid #dee2e6',
+                    borderRadius: '8px',
+                    fontSize: '0.9rem',
+                    background: 'white',
+                    transition: 'border-color 0.3s ease',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#2196f3'}
+                  onBlur={(e) => e.target.style.borderColor = '#dee2e6'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarPasswords(prev => ({ ...prev, nueva: !prev.nueva }))}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '1rem'
+                  }}
+                >
+                  {mostrarPasswords.nueva ? '👁️' : '👁️‍🗨️'}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ 
+                display: 'block', 
+                marginBottom: '8px', 
+                fontWeight: '500', 
+                color: '#495057',
+                fontSize: '0.9rem'
+              }}>
+                Confirmar Nueva Contraseña
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={mostrarPasswords.confirmar ? 'text' : 'password'}
+                  value={datosPassword.confirmarPassword}
+                  onChange={(e) => setDatosPassword(prev => ({ ...prev, confirmarPassword: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '12px 40px 12px 12px',
+                    border: '2px solid #dee2e6',
+                    borderRadius: '8px',
+                    fontSize: '0.9rem',
+                    background: 'white',
+                    transition: 'border-color 0.3s ease',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#2196f3'}
+                  onBlur={(e) => e.target.style.borderColor = '#dee2e6'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarPasswords(prev => ({ ...prev, confirmar: !prev.confirmar }))}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '1rem'
+                  }}
+                >
+                  {mostrarPasswords.confirmar ? '👁️' : '👁️‍🗨️'}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ 
+                display: 'block', 
+                marginBottom: '8px', 
+                fontWeight: '500', 
+                color: '#495057',
+                fontSize: '0.9rem'
+              }}>
+                Contraseña Actual (opcional, para verificación)
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={mostrarPasswords.actual ? 'text' : 'password'}
+                  value={datosPassword.passwordActual}
+                  onChange={(e) => setDatosPassword(prev => ({ ...prev, passwordActual: e.target.value }))}
+                  placeholder="Dejar vacío si es primera configuración"
+                  style={{
+                    width: '100%',
+                    padding: '12px 40px 12px 12px',
+                    border: '2px solid #dee2e6',
+                    borderRadius: '8px',
+                    fontSize: '0.9rem',
+                    background: 'white',
+                    transition: 'border-color 0.3s ease',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#2196f3'}
+                  onBlur={(e) => e.target.style.borderColor = '#dee2e6'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarPasswords(prev => ({ ...prev, actual: !prev.actual }))}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '1rem'
+                  }}
+                >
+                  {mostrarPasswords.actual ? '👁️' : '👁️‍🗨️'}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                onClick={() => {
+                  setMostrarModalPassword(false);
+                  setDatosPassword({ nuevaPassword: '', confirmarPassword: '', passwordActual: '' });
+                  setMostrarPasswords({ nueva: false, confirmar: false, actual: false });
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #6c757d 0%, #495057 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px 24px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  transition: 'all 0.3s ease'
+                }}
+              >
+                ❌ Cancelar
+              </button>
+              <button
+                onClick={cambiarPassword}
+                disabled={!datosPassword.nuevaPassword || datosPassword.nuevaPassword.length < 6 || 
+                         datosPassword.nuevaPassword !== datosPassword.confirmarPassword || cambiandoPassword}
+                style={{
+                  background: (!datosPassword.nuevaPassword || datosPassword.nuevaPassword.length < 6 || 
+                             datosPassword.nuevaPassword !== datosPassword.confirmarPassword || cambiandoPassword) ? 
+                    'linear-gradient(135deg, #ccc 0%, #aaa 100%)' :
+                    'linear-gradient(135deg, #2196f3 0%, #1976d2 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px 24px',
+                  fontWeight: '600',
+                                          cursor: (!datosPassword.nuevaPassword || datosPassword.nuevaPassword.length < 6 || 
+                          datosPassword.nuevaPassword !== datosPassword.confirmarPassword || cambiandoPassword) ? 'not-allowed' : 'pointer',
+                  fontSize: '0.9rem',
+                  transition: 'all 0.3s ease'
+                }}
+              >
+                {cambiandoPassword ? '⏳ Cambiando...' : '🔐 Cambiar Contraseña'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de resetear contraseña */}
+      {mostrarModalReset && adminSeleccionado && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: 'rgba(0,0,0,0.6)',
+          zIndex: 1001,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backdropFilter: 'blur(5px)'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            padding: '28px',
+            maxWidth: '500px',
+            width: '90%',
+            boxShadow: '0 15px 50px rgba(0,0,0,0.3)'
+          }}>
+            <h3 style={{ 
+              margin: '0 0 20px 0', 
+              color: '#9c27b0', 
+              textAlign: 'center',
+              fontSize: '1.3rem',
+              fontWeight: '600'
+            }}>
+              🔄 Resetear Contraseña
+            </h3>
+            
+            <div style={{ marginBottom: '20px', padding: '16px', background: '#f3e5f5', borderRadius: '8px', border: '1px solid #9c27b0' }}>
+              <p style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: '#7b1fa2' }}>
+                <strong>⚠️ ADVERTENCIA:</strong> Se generará una nueva contraseña temporal.
+              </p>
+              <p style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: '#495057' }}>
+                <strong>Administrador:</strong> {adminSeleccionado.nombreAdmin}
+              </p>
+              <p style={{ margin: 0, fontSize: '0.9rem', color: '#495057' }}>
+                <strong>Email:</strong> {adminSeleccionado.email}
+              </p>
+            </div>
+
+            {passwordReseteada && (
+              <div style={{
+                background: 'linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%)',
+                border: '2px solid #ff9800',
+                borderRadius: '12px',
+                padding: '16px',
+                marginBottom: '20px',
+                color: '#e65100'
+              }}>
+                <h4 style={{ margin: '0 0 12px 0', color: '#e65100', fontWeight: '600' }}>
+                  🔑 Nueva Contraseña Temporal
+                </h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                  <code style={{
+                    background: 'rgba(230, 81, 0, 0.1)',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    fontSize: '1.1rem',
+                    fontWeight: '600',
+                    border: '1px solid rgba(230, 81, 0, 0.3)',
+                    flex: 1
+                  }}>
+                    {passwordReseteada}
+                  </code>
+                  <button
+                    onClick={() => copiarAlPortapapeles(passwordReseteada)}
+                    style={{
+                      background: 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem',
+                      fontWeight: '500'
+                    }}
+                  >
+                    📋 Copiar
+                  </button>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.85rem', fontStyle: 'italic' }}>
+                  ⚠️ Guarde esta contraseña de forma segura. El administrador deberá cambiarla en su primer acceso.
+                </p>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                onClick={() => {
+                  setMostrarModalReset(false);
+                  setPasswordReseteada(null);
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #6c757d 0%, #495057 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px 24px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  transition: 'all 0.3s ease'
+                }}
+              >
+                ❌ Cancelar
+              </button>
+              {!passwordReseteada && (
+                <button
+                  onClick={resetearPassword}
+                  disabled={reseteandoPassword}
+                  style={{
+                    background: reseteandoPassword ? 
+                      'linear-gradient(135deg, #ccc 0%, #aaa 100%)' :
+                      'linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '12px 24px',
+                    fontWeight: '600',
+                    cursor: reseteandoPassword ? 'not-allowed' : 'pointer',
+                    fontSize: '0.9rem',
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  {reseteandoPassword ? '⏳ Reseteando...' : '🔄 Resetear Contraseña'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de eliminar */}
       {mostrarModalEliminar && adminSeleccionado && (
         <div style={{
@@ -1191,6 +1896,146 @@ const AdministradoresProcesados: React.FC<AdministradoresProcesadosProps> = ({
               >
                 {eliminandoAdmin ? '⏳ Eliminando...' : '🗑️ Eliminar Definitivamente'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de migración de contraseñas */}
+      {mostrarModalMigracion && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: 'rgba(0,0,0,0.6)',
+          zIndex: 1001,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backdropFilter: 'blur(5px)'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            padding: '28px',
+            maxWidth: '600px',
+            width: '90%',
+            boxShadow: '0 15px 50px rgba(0,0,0,0.3)'
+          }}>
+            <h3 style={{ 
+              margin: '0 0 20px 0', 
+              color: '#ff9800', 
+              textAlign: 'center',
+              fontSize: '1.3rem',
+              fontWeight: '600'
+            }}>
+              🔑 Migración de Contraseñas
+            </h3>
+            
+            <div style={{ marginBottom: '20px', padding: '16px', background: '#fff3e0', borderRadius: '8px', border: '1px solid #ff9800' }}>
+              <p style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: '#e65100' }}>
+                <strong>ℹ️ Información:</strong> Esta función generará contraseñas temporales para todos los administradores que no tengan contraseña configurada.
+              </p>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: '#495057', fontStyle: 'italic' }}>
+                Solo se procesarán administradores que no tengan contraseña previamente configurada.
+              </p>
+            </div>
+
+            {resultadoMigracion && (
+              <div style={{
+                background: 'linear-gradient(135deg, #e8f5e8 0%, #c8e6c9 100%)',
+                border: '2px solid #4caf50',
+                borderRadius: '12px',
+                padding: '16px',
+                marginBottom: '20px',
+                color: '#2e7d32'
+              }}>
+                <h4 style={{ margin: '0 0 12px 0', color: '#2e7d32', fontWeight: '600' }}>
+                  ✅ Migración Completada
+                </h4>
+                <p style={{ margin: '0 0 8px 0', fontSize: '0.9rem' }}>
+                  <strong>Administradores migrados:</strong> {resultadoMigracion.adminsMigrados}
+                </p>
+                
+                {resultadoMigracion.passwordsGeneradas && Object.keys(resultadoMigracion.passwordsGeneradas).length > 0 && (
+                  <div style={{ marginTop: '12px' }}>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '0.9rem', fontWeight: '600' }}>
+                      🔐 Contraseñas generadas:
+                    </p>
+                    <div style={{ maxHeight: '200px', overflowY: 'auto', background: 'rgba(46, 125, 50, 0.1)', padding: '8px', borderRadius: '6px' }}>
+                      {Object.entries(resultadoMigracion.passwordsGeneradas).map(([nombre, password]) => (
+                        <div key={nombre} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '6px', background: 'white', borderRadius: '4px' }}>
+                          <div>
+                            <strong>{nombre}:</strong> <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: '3px' }}>{String(password)}</code>
+                          </div>
+                          <button
+                            onClick={() => copiarAlPortapapeles(password as string)}
+                            style={{
+                              background: 'linear-gradient(135deg, #4caf50 0%, #388e3c 100%)',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              padding: '4px 8px',
+                              cursor: 'pointer',
+                              fontSize: '0.8rem'
+                            }}
+                          >
+                            📋
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <p style={{ margin: '8px 0 0 0', fontSize: '0.8rem', fontStyle: 'italic' }}>
+                      ⚠️ Guarde estas contraseñas de forma segura.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                onClick={() => {
+                  setMostrarModalMigracion(false);
+                  setResultadoMigracion(null);
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #6c757d 0%, #495057 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px 24px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  transition: 'all 0.3s ease'
+                }}
+              >
+                ❌ Cancelar
+              </button>
+              {!resultadoMigracion && (
+                <button
+                  onClick={migrarPasswords}
+                  disabled={migrandoPasswords}
+                  style={{
+                    background: migrandoPasswords ? 
+                      'linear-gradient(135deg, #ccc 0%, #aaa 100%)' :
+                      'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '12px 24px',
+                    fontWeight: '600',
+                    cursor: migrandoPasswords ? 'not-allowed' : 'pointer',
+                    fontSize: '0.9rem',
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  {migrandoPasswords ? '⏳ Migrando...' : '🔑 Iniciar Migración'}
+                </button>
+              )}
             </div>
           </div>
         </div>
