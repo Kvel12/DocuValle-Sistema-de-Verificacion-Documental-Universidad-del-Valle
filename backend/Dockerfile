@@ -1,8 +1,11 @@
-# Dockerfile simplificado para DocuValle Backend
-FROM node:18-alpine AS builder
+# Dockerfile corregido para DocuValle Backend con soporte bcrypt
+FROM node:18-slim AS builder
 
-# Instalar dependencias necesarias
-RUN apk add --no-cache python3 make g++
+# Instalar dependencias necesarias para compilación nativa
+RUN apt-get update && apt-get install -y \
+    python3 \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -10,7 +13,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Instalar dependencias
+# Instalar dependencias (esto compilará bcrypt nativamente)
 RUN npm ci
 
 # Copiar todo el código fuente
@@ -22,17 +25,19 @@ RUN npm run build
 # Verificar que la compilación funcionó
 RUN ls -la dist/
 
-# Limpiar dependencias de desarrollo
+# Limpiar dependencias de desarrollo pero mantener las necesarias para bcrypt
 RUN npm prune --production
 
 # ETAPA DE PRODUCCIÓN
-FROM node:18-alpine
+FROM node:18-slim
 
 # Crear usuario no-root
-RUN addgroup -g 1001 -S nodejs && adduser -S docuvalle -u 1001
+RUN groupadd -r nodejs && useradd -r -g nodejs docuvalle
 
-# Instalar curl para health checks
-RUN apk add --no-cache curl
+# Instalar dependencias de runtime necesarias para bcrypt
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -59,4 +64,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 CMD ["node", "dist/src/server.js"]
 
 LABEL maintainer="DocuValle Team"
-LABEL version="1.0"
+LABEL version="2.0"
