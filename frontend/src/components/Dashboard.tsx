@@ -1,12 +1,78 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import {
+  DocumentosPorDiaChart,
+  DistribucionDocumentosChart,
+  MetricasBasicasDashboard,
+  UltimosDocumentosList,
+} from './charts';
+import { DocumentoProcesado } from './charts/UltimosDocumentosList';
+import DocumentosProcesados from './DocumentosProcesados';
 import AdministradoresProcesados from './Admin/AdministradoresProcesados';
+import { API_BASE_URL } from '../src/config/firebase';
 
-// Configuración de API - ajusta según tu configuración
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+interface StatsResponse {
+  totalDocumentos: number;
+  documentosHoy: number;
+  scorePromedio: number;
+  distribucionRecomendaciones: { [key: string]: number };
+  tendenciaUltimos30Dias: Array<{ fecha: string; cantidad: number }>;
+}
 
 const Dashboard: React.FC = () => {
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [ultimosDocumentos, setUltimosDocumentos] = useState<DocumentoProcesado[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await axios.get(`${API_BASE_URL}/api/dashboard/stats`);
+        if (res.data.success) {
+          setStats(res.data.stats);
+        } else {
+          setError('No se pudieron obtener las estadísticas');
+        }
+      } catch (err) {
+        setError('Error al obtener estadísticas del dashboard');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const fetchUltimos = async () => {
+      try {
+        const res = await axios.get(`${API_BASE_URL}/api/dashboard/ultimos`);
+        if (res.data.success) {
+          setUltimosDocumentos(res.data.documentos);
+        }
+      } catch (err) {
+        console.log('Error obteniendo últimos documentos:', err);
+      }
+    };
+
+    fetchStats();
+    fetchUltimos();
+  }, []);
+
+  // Preparar datos para los componentes
+  const labels = stats?.tendenciaUltimos30Dias?.slice(-7).map(d => d.fecha) || [];
+  const data = stats?.tendenciaUltimos30Dias?.slice(-7).map(d => d.cantidad) || [];
+  const distribucion = {
+    aceptados: stats?.distribucionRecomendaciones['accept'] || 0,
+    enRevision: stats?.distribucionRecomendaciones['review'] || 0,
+    rechazados: stats?.distribucionRecomendaciones['reject'] || 0,
+  };
+  const metricas = {
+    total: stats?.totalDocumentos || 0,
+    hoy: stats?.documentosHoy || 0,
+    scorePromedio: stats?.scorePromedio || 0,
+  };
 
   return (
     <>
@@ -37,7 +103,7 @@ const Dashboard: React.FC = () => {
             Sistema inteligente de análisis y verificación de documentos
           </p>
 
-          {/* Botón de acción principal */}
+          {/* Botón de acción principal - CENTRADO */}
           <div style={{ 
             display: 'flex', 
             justifyContent: 'center' 
@@ -88,125 +154,111 @@ const Dashboard: React.FC = () => {
           📊 Dashboard Analítico
         </h2>
 
-        {/* Placeholder para estadísticas futuras */}
-        <div style={{ 
-          textAlign: 'center', 
-          padding: '3rem',
-          background: 'white',
-          borderRadius: '16px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-          marginBottom: '2rem'
-        }}>
+        {/* Contenido del dashboard */}
+        {loading ? (
           <div style={{ 
-            fontSize: '2rem', 
-            marginBottom: '1rem' 
-          }}>📈</div>
-          <h3 style={{ 
-            color: '#333', 
-            fontSize: '1.5rem',
-            fontWeight: '600',
-            marginBottom: '0.5rem'
+            textAlign: 'center', 
+            padding: '3rem',
+            background: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
           }}>
-            Estadísticas del Sistema
-          </h3>
-          <p style={{ 
-            color: '#666', 
-            fontSize: '1rem',
-            margin: 0
+            <div style={{ 
+              fontSize: '2rem', 
+              marginBottom: '1rem' 
+            }}>⏳</div>
+            <p style={{ 
+              color: '#666', 
+              fontSize: '1.1rem' 
+            }}>Cargando estadísticas...</p>
+          </div>
+        ) : error ? (
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '3rem',
+            background: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
+            borderRadius: '16px',
+            color: 'white'
           }}>
-            Las métricas y gráficos del sistema se mostrarán aquí próximamente
-          </p>
-        </div>
+            <div style={{ 
+              fontSize: '2rem', 
+              marginBottom: '1rem' 
+            }}>❌</div>
+            <p style={{ 
+              fontSize: '1.1rem',
+              fontWeight: '500'
+            }}>{error}</p>
+          </div>
+        ) : stats ? (
+          <>
+            {/* Métricas básicas */}
+            <MetricasBasicasDashboard {...metricas} />
+            
+            {/* Gráficos */}
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+              gap: '2rem', 
+              marginBottom: '2rem' 
+            }}>
+              <div style={{ 
+                background: 'white',
+                borderRadius: '16px',
+                padding: '1.5rem',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+              }}>
+                <DocumentosPorDiaChart labels={labels} data={data} />
+              </div>
+              <div style={{ 
+                background: 'white',
+                borderRadius: '16px',
+                padding: '1.5rem',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+              }}>
+                <DistribucionDocumentosChart {...distribucion} />
+              </div>
+            </div>
+            
+            {/* Últimos documentos */}
+            <div style={{
+              background: 'white',
+              borderRadius: '16px',
+              padding: '1.5rem',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+            }}>
+              <UltimosDocumentosList documentos={ultimosDocumentos} />
+            </div>
+          </>
+        ) : null}
         
       </div>
       
-      {/* NUEVA SECCIÓN: Gestión de Administradores */}
-      <div style={{ 
-        paddingBottom: '3rem',
-        background: 'linear-gradient(135deg, #f8f9fc 0%, #eef2f7 100%)',
-        paddingTop: '2rem'
-      }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 1rem' }}>
-          {/* Título de la sección */}
-          <h2 style={{ 
-            color: '#333', 
-            marginBottom: '2rem',
-            fontSize: '1.8rem',
-            fontWeight: '600',
-            textAlign: 'center'
-          }}>
-            🔧 Gestión del Sistema
-          </h2>
+      {/* Componente de Documentos Procesados - Con botones centrados */}
+      <div style={{ paddingBottom: '3rem' }}>
+        {/* NUEVA SECCIÓN: Botones de gestión centrados */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: '2rem',
+          flexWrap: 'wrap',
+          margin: '2rem auto',
+          maxWidth: '800px',
+          padding: '0 1rem'
+        }}>
+          {/* Componente de Documentos Procesados */}
+          <DocumentosProcesados 
+            apiBaseUrl={API_BASE_URL}
+            mostrarBotonAbrir={true}
+            titulo="📚 Documentos Procesados"
+          />
 
-          {/* Contenedor para el componente de administradores - Centrado */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'flex-start',
-            margin: '0 auto',
-            maxWidth: '600px'
-          }}>
-            {/* Componente de Administradores */}
-            <div style={{
-              width: '100%',
-              maxWidth: '400px'
-            }}>
-              <AdministradoresProcesados 
-                apiBaseUrl={API_BASE_URL}
-                mostrarBotonAbrir={true}
-                titulo="👨‍💼 Administradores del Sistema"
-              />
-            </div>
-          </div>
-
-          {/* Información adicional sobre la gestión */}
-          <div style={{
-            marginTop: '3rem',
-            textAlign: 'center',
-            padding: '1.5rem',
-            background: 'rgba(255, 255, 255, 0.8)',
-            borderRadius: '16px',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-            backdropFilter: 'blur(10px)'
-          }}>
-            <h3 style={{ 
-              margin: '0 0 1rem 0', 
-              color: '#495057',
-              fontSize: '1.2rem',
-              fontWeight: '600'
-            }}>
-              💡 Centro de Control de Administradores
-            </h3>
-            <p style={{ 
-              margin: 0, 
-              color: '#6c757d',
-              fontSize: '1rem',
-              lineHeight: '1.6'
-            }}>
-              Gestiona las cuentas de administradores del sistema DocuValle. Puedes crear nuevos 
-              administradores, cambiar su estado (activo/inactivo) y eliminar cuentas cuando sea necesario.
-            </p>
-          </div>
-
-          {/* Nota sobre funcionalidades adicionales */}
-          <div style={{
-            marginTop: '1.5rem',
-            textAlign: 'center',
-            padding: '1rem',
-            background: 'rgba(255, 193, 7, 0.1)',
-            borderRadius: '12px',
-            border: '1px solid rgba(255, 193, 7, 0.3)'
-          }}>
-            <p style={{ 
-              margin: 0, 
-              color: '#856404',
-              fontSize: '0.9rem',
-              fontWeight: '500'
-            }}>
-              📝 <strong>Nota:</strong> Las funcionalidades de gestión de documentos y estadísticas 
-              avanzadas se integrarán en futuras actualizaciones del dashboard.
-            </p>
-          </div>
+          {/* NUEVO: Componente de Administradores */}
+          <AdministradoresProcesados 
+            apiBaseUrl={API_BASE_URL}
+            mostrarBotonAbrir={true}
+            titulo="👨‍💼 Administradores del Sistema"
+          />
         </div>
       </div>
     </>

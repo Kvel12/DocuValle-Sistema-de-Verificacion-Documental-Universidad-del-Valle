@@ -350,7 +350,7 @@ app.delete('/api/admins/:adminId', async (req, res) => {
   }
 });
 
-// ENDPOINTS DE GESTIÓN DE USUARIOS (mantenidos)
+// ENDPOINTS DE GESTIÓN DE USUARIOS
 
 /**
  * Crear o obtener un usuario
