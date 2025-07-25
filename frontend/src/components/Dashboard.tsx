@@ -112,7 +112,6 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
           <UltimosDocumentosList documentos={ultimosDocumentos} />
-          {botonSubir}
         </>
       ) : null}
     </div>

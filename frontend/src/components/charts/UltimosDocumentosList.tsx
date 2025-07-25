@@ -27,7 +27,7 @@ const estadoColor: Record<string, string> = {
 const UltimosDocumentosList: React.FC<UltimosDocumentosListProps> = ({ documentos }) => {
   return (
     <div className="chart-card">
-      <h4>Últimos 5 documentos procesados</h4>
+      <h4 style={{color: 'GrayText'}}>Últimos 5 documentos procesados</h4>
       <ul style={{ listStyle: 'none', padding: 0 }}>
         {documentos.map((doc) => (
           <li key={doc.id} style={{
@@ -37,7 +37,7 @@ const UltimosDocumentosList: React.FC<UltimosDocumentosListProps> = ({ documento
             padding: '0.5rem 0',
             borderBottom: '1px solid #eee',
           }}>
-            <span>{doc.nombre}</span>
+            <span style={{color: 'GrayText'}}>{doc.nombre}</span>
             <span style={{ color: '#888' }}>{doc.fecha}</span>
             <span style={{ color: estadoColor[doc.estado], fontWeight: 600 }}>{estadoLabel[doc.estado]}</span>
           </li>

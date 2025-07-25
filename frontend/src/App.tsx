@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import UploadDocumento from './components/UploadDocumento';
 import Dashboard from './components/Dashboard';
 import './components/UploadDocumento.css';
@@ -11,10 +11,6 @@ function App() {
       <div className="App">
         <header className="App-header">
           <h1>🚀 DocuValle - Sistema de Análisis de Documentos</h1>
-          <nav style={{ margin: '1rem 0' }}>
-            <Link to="/" style={{ marginRight: '1.5rem' }}>Subir Documento</Link>
-            <Link to="/dashboard">Dashboard</Link>
-          </nav>
         </header>
         <main className="App-main">
           <Routes>
