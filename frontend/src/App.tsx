@@ -51,7 +51,7 @@ function App() {
         onClick={() => navigate("/crear-admin")}
         className="bg-white text-purple-700 text-2xl font-bold px-8 py-4 rounded-xl shadow-lg border-2 border-purple-700 hover:bg-purple-100 transition-all duration-200"
       >
-        Crear Admin
+        Gestión de Usuarios
       </button>
     </div>
   );
