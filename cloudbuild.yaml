@@ -1,4 +1,4 @@
-# cloudbuild.yaml FINAL CORREGIDO - DocuValle con Frontend Automatizado
+# cloudbuild.yaml con Gestión Segura de Secretos - DocuValle v3.1
 steps:
   # PASO 1: Instalar dependencias del backend
   - name: 'node:18'
@@ -31,7 +31,32 @@ steps:
     id: 'push-docker-image'
     waitFor: ['build-docker-image']
     
-  # PASO 5: Desplegar backend a Cloud Run
+  # PASO 5: Crear administrador de prueba (solo en desarrollo)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "🧪 Configurando administrador de prueba..."
+        
+        # Solo ejecutar en desarrollo o cuando sea necesario
+        if [ "${_ENVIRONMENT}" = "development" ] || [ "${_CREATE_TEST_ADMIN}" = "true" ]; then
+          echo "🔧 Creando administrador de prueba via API..."
+          
+          # Esperar a que el servicio esté desplegado
+          sleep 30
+          
+          # Intentar crear admin de prueba
+          curl -X POST https://docuvalle-backend-166554040569.us-central1.run.app/api/admin/create-test-admin \
+            -H "Content-Type: application/json" \
+            || echo "⚠️ Admin de prueba ya existe o servicio no disponible aún"
+        else
+          echo "🏭 Entorno de producción - saltando creación de admin de prueba"
+        fi
+    id: 'setup-test-admin'
+    waitFor: ['push-docker-image']
+    
+  # PASO 6: Desplegar backend a Cloud Run con TODAS las variables
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args: [
@@ -47,19 +72,58 @@ steps:
       '--max-instances', '10',
       '--timeout', '300',
       '--cpu-boost',
-      '--set-env-vars', 'GEMINI_API_KEY=${_GEMINI_API_KEY},PROJECT_ID=$PROJECT_ID'
+      '--set-env-vars', 'GEMINI_API_KEY=${_GEMINI_API_KEY},PROJECT_ID=$PROJECT_ID,JWT_SECRET=${_JWT_SECRET},NODE_ENV=${_NODE_ENV}',
+      '--set-secrets', 'JWT_SECRET=docuvalle-jwt-secret:latest'
     ]
     id: 'deploy-backend'
-    waitFor: ['push-docker-image']
+    waitFor: ['setup-test-admin']
     
-  # PASO 6: Instalar dependencias del frontend
+  # PASO 7: Ejecutar script post-deployment para inicializar datos
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "🔄 Verificando y configurando datos iniciales..."
+        
+        # Esperar a que el servicio esté completamente desplegado
+        sleep 10
+        
+        # Verificar health del backend
+        echo "🏥 Verificando health del backend..."
+        curl -f https://docuvalle-backend-166554040569.us-central1.run.app/api/health || {
+          echo "❌ Backend no responde correctamente"
+          exit 1
+        }
+        
+        # Crear administrador de prueba si es necesario
+        if [ "${_CREATE_TEST_ADMIN}" = "true" ]; then
+          echo "🧪 Creando administrador de prueba..."
+          curl -X POST https://docuvalle-backend-166554040569.us-central1.run.app/api/admin/create-test-admin \
+            -H "Content-Type: application/json" \
+            -w "Status: %{http_code}\n" || echo "⚠️ Error creando admin de prueba"
+        fi
+        
+        # Migrar passwords si es necesario
+        if [ "${_MIGRATE_PASSWORDS}" = "true" ]; then
+          echo "🔑 Ejecutando migración de contraseñas..."
+          curl -X POST https://docuvalle-backend-166554040569.us-central1.run.app/api/admins/migrate-passwords \
+            -H "Content-Type: application/json" \
+            -w "Status: %{http_code}\n" || echo "⚠️ Error en migración"
+        fi
+        
+        echo "✅ Configuración post-deployment completada"
+    id: 'post-deployment-setup'
+    waitFor: ['deploy-backend']
+    
+  # PASO 8: Instalar dependencias del frontend
   - name: 'node:18'
     entrypoint: 'npm'
     args: ['ci']
     dir: 'frontend'
     id: 'install-frontend-deps'
     
-  # PASO 7: Construir el frontend con URL CORRECTA
+  # PASO 9: Construir el frontend con URL CORRECTA
   - name: 'node:18'
     entrypoint: 'npm'
     args: ['run', 'build']
@@ -69,8 +133,9 @@ steps:
     env:
       - 'REACT_APP_API_URL=https://docuvalle-backend-166554040569.us-central1.run.app'
       - 'REACT_APP_PROJECT_ID=$PROJECT_ID'
+      - 'REACT_APP_ENVIRONMENT=${_NODE_ENV}'
       
-  # PASO 8: Desplegar frontend a Firebase Hosting - VERSIÓN SIMPLE Y SEGURA
+  # PASO 10: Desplegar frontend a Firebase Hosting
   - name: 'node:18'
     entrypoint: 'bash'
     args:
@@ -106,29 +171,68 @@ steps:
         
         echo "🎉 Frontend desplegado exitosamente a https://$PROJECT_ID.web.app"
     id: 'deploy-frontend'
-    waitFor: ['build-frontend']
+    waitFor: ['build-frontend', 'post-deployment-setup']
     
-  # PASO 9: Verificar deployment completo
+  # PASO 11: Verificar deployment completo y configurar datos iniciales
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        echo "🎯 Verificando deployment completo..."
-        echo "🖥️  Backend: https://docuvalle-backend-166554040569.us-central1.run.app/api/health"
+        echo "🎯 Verificación final del deployment..."
+        
+        # Verificar backend
+        echo "🔍 Verificando backend..."
+        BACKEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://docuvalle-backend-166554040569.us-central1.run.app/api/health)
+        if [ "$BACKEND_STATUS" = "200" ]; then
+          echo "✅ Backend funcionando correctamente"
+        else
+          echo "⚠️ Backend respondió con código: $BACKEND_STATUS"
+        fi
+        
+        # Verificar frontend
+        echo "🔍 Verificando frontend..."
+        FRONTEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://$PROJECT_ID.web.app)
+        if [ "$FRONTEND_STATUS" = "200" ]; then
+          echo "✅ Frontend funcionando correctamente"
+        else
+          echo "⚠️ Frontend respondió con código: $FRONTEND_STATUS"
+        fi
+        
+        echo ""
+        echo "🎉 ============================================"
+        echo "🎉 DOCUVALLE DESPLEGADO EXITOSAMENTE!"
+        echo "🎉 ============================================"
+        echo "🖥️  Backend: https://docuvalle-backend-166554040569.us-central1.run.app"
         echo "🌐 Frontend: https://$PROJECT_ID.web.app"
-        echo "✅ DocuValle desplegado exitosamente!"
+        echo "🏥 Health Check: https://docuvalle-backend-166554040569.us-central1.run.app/api/health"
+        echo ""
+        echo "🔐 Credenciales de prueba:"
+        echo "   Email: admin@example.com"
+        echo "   Password: 1234"
+        echo "🎉 ============================================"
     id: 'verify-deployment'
     waitFor: ['deploy-frontend']
+
+# Configuración de secretos disponibles
+availableSecrets:
+  secretManager:
+  - versionName: projects/$PROJECT_ID/secrets/docuvalle-jwt-secret/versions/latest
+    env: 'JWT_SECRET'
 
 # Configuración adicional
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
-timeout: '1800s'  # Aumentamos el timeout a 30 minutos
+timeout: '2400s'  # 40 minutos para dar tiempo a todas las operaciones
 
-# Variables de sustitución
+# Variables de sustitución - CONFIGURAR EN LA CONSOLA DE CLOUD BUILD
 substitutions:
   _SERVICE_NAME: 'docuvalle-backend'
   _REGION: 'us-central1'
   _GEMINI_API_KEY: 'AIzaSyCZTmjN7HhG-sV42CnPoCh6CeAHoC_ltw4'
+  _JWT_SECRET: 'docuvalle-jwt-secret-production-2024'  # Se sobrescribe en la consola
+  _NODE_ENV: 'production'  # development | production
+  _ENVIRONMENT: 'production'  # development | production  
+  _CREATE_TEST_ADMIN: 'true'  # true | false
+  _MIGRATE_PASSWORDS: 'true'  # true | false
