@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import {
   DocumentosPorDiaChart,
   DistribucionDocumentosChart,
@@ -7,8 +8,8 @@ import {
   UltimosDocumentosList,
 } from './charts';
 import { DocumentoProcesado } from './charts/UltimosDocumentosList';
+import DocumentosProcesados from './DocumentosProcesados';
 import { API_BASE_URL } from '../src/config/firebase';
-import { useNavigate } from 'react-router-dom';
 
 interface StatsResponse {
   totalDocumentos: number;
@@ -42,6 +43,9 @@ const Dashboard: React.FC = () => {
         setLoading(false);
       }
     };
+
+  // Preparar datos para los componentes
+
     const fetchUltimos = async () => {
       try {
         const res = await axios.get(`${API_BASE_URL}/api/dashboard/ultimos`);
@@ -49,14 +53,15 @@ const Dashboard: React.FC = () => {
           setUltimosDocumentos(res.data.documentos);
         }
       } catch (err) {
-        /* No es crítico, solo log */
+        console.log('Error obteniendo últimos documentos:', err);
       }
     };
+
     fetchStats();
     fetchUltimos();
   }, []);
 
-  // Preparar datos para los componentes
+ 
   const labels = stats?.tendenciaUltimos30Dias?.slice(-7).map(d => d.fecha) || [];
   const data = stats?.tendenciaUltimos30Dias?.slice(-7).map(d => d.cantidad) || [];
   const distribucion = {
@@ -70,52 +75,175 @@ const Dashboard: React.FC = () => {
     scorePromedio: stats?.scorePromedio || 0,
   };
 
-  const botonSubir = (
-    <button
-      onClick={() => navigate('/upload')}
-      style={{
-        borderRadius: '999px',
-        background: '#fff',
-        border: '1.5px solid #b0b0b0',
-        color: '#111',
-        fontWeight: 600,
-        fontSize: '1rem',
-        padding: '0.7rem 2.2rem',
-        margin: '1.5rem auto',
-        display: 'block',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-        transition: 'box-shadow 0.2s',
-        cursor: 'pointer',
-      }}
-    >
-      Subir Documento
-    </button>
-  );
-
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', padding: '2rem 1rem' }}>
-      {botonSubir}
-      <h2>Dashboard Principal</h2>
-      {loading ? (
-        <p>Cargando estadísticas...</p>
-      ) : error ? (
-        <p style={{ color: 'red' }}>{error}</p>
-      ) : stats ? (
-        <>
-          <MetricasBasicasDashboard {...metricas} />
-          <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
-            <div style={{ flex: 2, minWidth: 320 }}>
-              <DocumentosPorDiaChart labels={labels} data={data} />
-            </div>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <DistribucionDocumentosChart {...distribucion} />
-            </div>
+    <>
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1rem' }}>
+        
+        {/* Sección de bienvenida y acciones principales */}
+        <div className="welcome-section" style={{
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          borderRadius: '20px',
+          padding: '2rem',
+          marginBottom: '2rem',
+          color: 'white',
+          textAlign: 'center',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.1)'
+        }}>
+          <h1 style={{ 
+            margin: '0 0 0.5rem 0', 
+            fontSize: '2.2rem', 
+            fontWeight: '700' 
+          }}>
+            ¡Bienvenido a DocuValle! 📄
+          </h1>
+          <p style={{ 
+            margin: '0 0 2rem 0', 
+            fontSize: '1.1rem', 
+            opacity: 0.9 
+          }}>
+            Sistema inteligente de análisis y verificación de documentos
+          </p>
+
+          {/* Botón de acción principal - CENTRADO */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center' 
+          }}>
+            <button
+              onClick={() => navigate('/upload')}
+              style={{
+                background: 'rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                border: '2px solid rgba(255, 255, 255, 0.3)',
+                color: 'white',
+                borderRadius: '15px',
+                padding: '1rem 2rem',
+                fontSize: '1.1rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                minWidth: '200px',
+                justifyContent: 'center'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)';
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 8px 25px rgba(0,0,0,0.2)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = 'none';
+              }}
+            >
+              <span style={{ fontSize: '1.3rem' }}>📤</span>
+              Analizar Documento
+            </button>
           </div>
-          <UltimosDocumentosList documentos={ultimosDocumentos} />
-        </>
-      ) : null}
-    </div>
+        </div>
+
+        {/* Título del dashboard */}
+        <h2 style={{ 
+          color: '#333', 
+          marginBottom: '2rem',
+          fontSize: '1.8rem',
+          fontWeight: '600'
+        }}>
+          📊 Dashboard Analítico
+        </h2>
+
+        {/* Contenido del dashboard */}
+        {loading ? (
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '3rem',
+            background: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+          }}>
+            <div style={{ 
+              fontSize: '2rem', 
+              marginBottom: '1rem' 
+            }}>⏳</div>
+            <p style={{ 
+              color: '#666', 
+              fontSize: '1.1rem' 
+            }}>Cargando estadísticas...</p>
+          </div>
+        ) : error ? (
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '3rem',
+            background: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
+            borderRadius: '16px',
+            color: 'white'
+          }}>
+            <div style={{ 
+              fontSize: '2rem', 
+              marginBottom: '1rem' 
+            }}>❌</div>
+            <p style={{ 
+              fontSize: '1.1rem',
+              fontWeight: '500'
+            }}>{error}</p>
+          </div>
+        ) : stats ? (
+          <>
+            {/* Métricas básicas */}
+            <MetricasBasicasDashboard {...metricas} />
+            
+            {/* Gráficos */}
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+              gap: '2rem', 
+              marginBottom: '2rem' 
+            }}>
+              <div style={{ 
+                background: 'white',
+                borderRadius: '16px',
+                padding: '1.5rem',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+              }}>
+                <DocumentosPorDiaChart labels={labels} data={data} />
+              </div>
+              <div style={{ 
+                background: 'white',
+                borderRadius: '16px',
+                padding: '1.5rem',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+              }}>
+                <DistribucionDocumentosChart {...distribucion} />
+              </div>
+            </div>
+            
+            {/* Últimos documentos */}
+            <div style={{
+              background: 'white',
+              borderRadius: '16px',
+              padding: '1.5rem',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+            }}>
+              <UltimosDocumentosList documentos={ultimosDocumentos} />
+            </div>
+          </>
+        ) : null}
+        
+      </div>
+      
+      {/* Componente de Documentos Procesados - Con padding inferior */}
+      <div style={{ paddingBottom: '3rem' }}>
+        <DocumentosProcesados 
+          apiBaseUrl={API_BASE_URL}
+          mostrarBotonAbrir={true} // El componente maneja su propio botón y lógica
+          titulo="📚 Documentos Procesados"
+        />
+      </div>
+    </>
   );
 };
 
-export default Dashboard; 
+export default Dashboard;

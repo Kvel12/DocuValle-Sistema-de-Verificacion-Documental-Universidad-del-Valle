@@ -1038,15 +1038,6 @@ const UploadDocumento: React.FC = () => {
               >
                 {analizando ? '⏳ Analizando con IA Híbrida...' : '🚀 Analizar con IA Híbrida (Vision + Gemini)'}
               </button>
-
-              <button
-                onClick={
-                  generarPDFDesdeHTML
-                }
-                className="btn-descargar"
-              >
-                📥 Descargar PDF del Análisis
-              </button>
               
               <button 
                 onClick={reiniciarProceso}
@@ -1063,7 +1054,7 @@ const UploadDocumento: React.FC = () => {
 
         {/* PASO 3: Resultados del análisis - FINAL */}
         {resultado && (
-          <section className="paso-resultados">
+          <section className="paso-resultados" ref={resultadoRef}>
             <h3>Paso 3: Resultados del Análisis IA Híbrida 📊</h3>
             
             <div className="resultado-analisis">
@@ -1225,7 +1216,7 @@ const UploadDocumento: React.FC = () => {
                 />
               </div>
 
-              {/* Botones de acción */}
+              {/* Botones de acción - CORREGIDO: Botón PDF movido aquí */}
               <div className="botones-resultado">
                 {!revisionManual && (
                   <button 
@@ -1263,6 +1254,14 @@ const UploadDocumento: React.FC = () => {
                     👤 Asignar a Usuario
                   </button>
                 )}
+
+                {/* CORREGIDO: Botón PDF movido del Paso 2 al Paso 3 */}
+                <button
+                  onClick={generarPDFDesdeHTML}
+                  className="btn-descargar"
+                >
+                  📥 Descargar PDF del Análisis
+                </button>
                 
                 <button 
                   onClick={reiniciarProceso}
@@ -1653,13 +1652,7 @@ const UploadDocumento: React.FC = () => {
         )}
 
       </div>
-      
-      {/* Componente de Documentos Procesados */}
-      <DocumentosProcesados 
-        apiBaseUrl={API_BASE_URL}
-        mostrarBotonAbrir={true}
-        titulo="📚 Documentos Procesados"
-      />
+
     </>
   );
 };

@@ -6,11 +6,14 @@ body {
   background: linear-gradient(135deg, #8e2de2, #4a00e0);
 
   /* Tipografía general sans-serif para todo el sitio */
-  font-family: Arial, sans-serif;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 
   /* Elimina margen y padding por defecto del navegador */
   margin: 0;
   padding: 0;
+  min-height: 100vh;
+  /* NUEVO: Evita scroll horizontal */
+  overflow-x: hidden;
 }
 
 /* -------------------------
@@ -19,9 +22,11 @@ body {
 -------------------------- */
 .login-container {
   display: flex;          /* Activa flexbox */
-  height: 100vh;          /* Toma toda la altura de la pantalla */
+  min-height: 100vh;      /* Toma toda la altura de la pantalla */
   justify-content: center;/* Centra horizontalmente */
   align-items: center;    /* Centra verticalmente */
+  padding: 3rem 2rem;     /* MEJORADO: Más padding vertical y horizontal */
+  box-sizing: border-box;
 }
 
 /* -------------------------
@@ -29,26 +34,78 @@ body {
    Glassmorphism + estilos
 -------------------------- */
 .login-form {
-  /* Fondo blanco translúcido */
-  background: rgba(255, 255, 255, 0.1);
+  /* Fondo blanco translúcido mejorado */
+  background: rgba(255, 255, 255, 0.15);
 
   /* Efecto de desenfoque de fondo (glassmorphism) */
-  backdrop-filter: blur(15px);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 
-  /* Bordes redondeados */
-  border-radius: 12px;
+  /* Bordes redondeados más suaves */
+  border-radius: 20px;
 
-  /* Espaciado interior */
-  padding: 2rem;
+  /* MEJORADO: Más espaciado interior */
+  padding: 3rem 2.5rem;
 
-  /* Ancho fijo para mantener proporciones */
-  width: 320px;
+  /* Ancho responsivo con máximo */
+  width: 100%;
+  max-width: 420px;
 
-  /* Sombra para dar efecto de profundidad */
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+  /* Sombra mejorada para dar efecto de profundidad */
+  box-shadow: 
+    0 8px 32px 0 rgba(31, 38, 135, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
 
   /* Borde sutil translúcido para resaltar contorno */
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+
+  /* Animación suave al aparecer */
+  animation: fadeInUp 0.6s ease-out;
+}
+
+/* -------------------------
+   NUEVO: Contenedor del ícono de la app
+-------------------------- */
+.app-icon-container {
+  text-align: center;
+  margin-bottom: 2.5rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.app-icon {
+  width: 80px;
+  height: auto;
+  max-height: 80px;
+  object-fit: contain;
+  margin: 0 auto 0.5rem auto;
+  display: block;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+  animation: pulse 2s infinite;
+}
+
+/* Estilo para el fallback del ícono */
+.app-icon-fallback {
+  font-size: 4rem;
+  margin: 0 auto 0.5rem auto;
+  display: block;
+  text-align: center;
+  animation: pulse 2s infinite;
+}
+
+.app-title {
+  margin: 0.5rem 0 0.2rem 0;
+  color: #ffffff;
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.app-subtitle {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.9rem;
+  font-weight: 400;
 }
 
 /* -------------------------
@@ -58,6 +115,8 @@ body {
   margin-bottom: 1.5rem; /* Espacio inferior */
   color: #ffffff;        /* Texto blanco */
   text-align: center;    /* Centrado */
+  font-size: 1.4rem;
+  font-weight: 600;
 }
 
 /* -------------------------
@@ -65,9 +124,11 @@ body {
 -------------------------- */
 .login-form label {
   display: block;    /* Cada etiqueta ocupa línea completa */
-  margin-top: 1rem;  /* Separación superior entre campos */
+  margin-top: 1.2rem;  /* Separación superior entre campos */
+  margin-bottom: 0.3rem;
   color: #f0f0f0;    /* Color claro */
-  font-weight: bold; /* Negrita para mayor visibilidad */
+  font-weight: 500; /* Peso medio para mayor legibilidad */
+  font-size: 0.9rem;
 }
 
 /* -------------------------
@@ -75,20 +136,23 @@ body {
 -------------------------- */
 .login-form input {
   width: 100%;              /* Ancho completo del contenedor */
-  padding: 0.6rem;          /* Relleno interior */
-  margin-top: 0.3rem;       /* Espacio entre label y input */
+  padding: 0.8rem 1rem;    /* Padding mejorado */
+  margin-top: 0;            /* Sin margen superior */
   border: none;             /* Sin borde por defecto */
-  border-radius: 6px;       /* Bordes redondeados */
+  border-radius: 10px;      /* Bordes más redondeados */
   background: rgba(255, 255, 255, 0.2); /* Fondo translúcido */
   color: #fff;              /* Texto blanco */
   outline: none;            /* Sin contorno azul del navegador */
+  font-size: 1rem;          /* Tamaño de fuente */
+  transition: all 0.3s ease; /* Transición suave */
+  box-sizing: border-box;   /* Include padding in width */
 }
 
 /* -------------------------
    Color del placeholder
 -------------------------- */
 .login-form input::placeholder {
-  color: #ddd; /* Color gris claro para pistas dentro de inputs */
+  color: rgba(255, 255, 255, 0.6); /* Color más sutil para placeholders */
 }
 
 /* -------------------------
@@ -96,6 +160,16 @@ body {
 -------------------------- */
 .login-form input:focus {
   background: rgba(255, 255, 255, 0.3); /* Fondo un poco más claro */
+  transform: translateY(-1px); /* Efecto sutil de elevación */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* -------------------------
+   Estado deshabilitado de inputs
+-------------------------- */
+.login-form input:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 /* -------------------------
@@ -103,24 +177,51 @@ body {
 -------------------------- */
 .login-form button {
   width: 100%; /* Ocupa todo el ancho del formulario */
-  padding: 0.8rem; /* Altura del botón */
-  margin-top: 1.5rem; /* Separación superior */
+  padding: 0.9rem; /* Altura del botón */
+  margin-top: 1.8rem; /* Separación superior */
   background: linear-gradient(135deg, #8e2de2, #4a00e0); /* Mismo degradado que fondo */
   color: #fff; /* Texto blanco */
   border: none; /* Sin borde */
-  border-radius: 6px; /* Bordes redondeados */
+  border-radius: 12px; /* Bordes redondeados */
   cursor: pointer; /* Cambia cursor a mano */
-  font-weight: bold; /* Texto en negrita */
+  font-weight: 600; /* Texto en semi-negrita */
+  font-size: 1rem;
   transition: all 0.3s ease; /* Transición suave en hover */
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); /* Sombra para profundidad */
+  position: relative;
+  overflow: hidden;
 }
 
 /* -------------------------
    Estado hover del botón principal
 -------------------------- */
-.login-form button:hover {
+.login-form button:hover:not(:disabled) {
   background: linear-gradient(135deg, #6a11cb, #2575fc); /* Cambio a otro degradado */
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); /* Aumenta la sombra */
+  transform: translateY(-2px); /* Efecto de elevación */
+}
+
+/* -------------------------
+   Estado deshabilitado del botón
+-------------------------- */
+.login-form button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* -------------------------
+   NUEVO: Spinner de carga
+-------------------------- */
+.loading-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 0.5rem;
 }
 
 /* -------------------------
@@ -128,23 +229,25 @@ body {
 -------------------------- */
 .close-button {
   width: 100%; /* Mismo ancho que botón principal */
-  margin-top: 0.8rem; /* Separación superior */
+  margin-top: 1rem; /* Separación superior */
   background: transparent; /* Fondo transparente */
-  color: #fff; /* Texto blanco */
+  color: rgba(255, 255, 255, 0.8); /* Texto blanco translúcido */
   border: 2px solid rgba(255, 255, 255, 0.3); /* Borde blanco translúcido */
-  border-radius: 50px; /* Bordes completamente redondeados (pill) */
-  padding: 0.5rem; /* Relleno interior */
-  font-size: 1rem; /* Tamaño de texto */
+  border-radius: 12px; /* Bordes redondeados consistentes */
+  padding: 0.6rem; /* Relleno interior */
+  font-size: 0.9rem; /* Tamaño de texto */
   cursor: pointer; /* Cursor en forma de mano */
   transition: all 0.3s ease; /* Transición suave */
+  font-weight: 500;
 }
 
 /* -------------------------
    Hover del botón cerrar
 -------------------------- */
-.close-button:hover {
-  background: rgba(255, 255, 255, 0.2); /* Fondo translúcido en hover */
-  border-color: #fff; /* Borde se vuelve blanco sólido */
+.close-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1); /* Fondo translúcido en hover */
+  border-color: rgba(255, 255, 255, 0.6); /* Borde más visible */
+  color: #fff; /* Texto completamente blanco */
 }
 
 /* -------------------------
@@ -155,4 +258,106 @@ body {
   margin-top: 1rem; /* Separación del input */
   font-size: 0.9rem;/* Tamaño de texto más pequeño */
   text-align: center; /* Centrado dentro del formulario */
+  background: rgba(255, 107, 107, 0.1);
+  padding: 0.8rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+/* -------------------------
+   NUEVO: Credenciales de demo
+-------------------------- */
+.demo-credentials {
+  margin-top: 2rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  text-align: center;
+}
+
+.demo-credentials p {
+  margin: 0.3rem 0;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.8rem;
+}
+
+.demo-credentials p:first-child {
+  color: #fff;
+  font-weight: 600;
+  margin-bottom: 0.8rem;
+}
+
+/* -------------------------
+   Animaciones
+-------------------------- */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* -------------------------
+   Responsividad
+-------------------------- */
+@media (max-height: 700px) {
+  .login-container {
+    padding: 2rem 2rem; /* Menos padding vertical en pantallas bajas */
+    min-height: 100vh; /* Permite scroll si es necesario */
+  }
+}
+
+@media (max-width: 480px) {
+  .login-container {
+    padding: 2rem 1rem; /* Menos padding en móvil pero aún cómodo */
+  }
+  
+  .login-form {
+    padding: 2.5rem 2rem; /* Padding ajustado para móvil */
+    border-radius: 16px;
+  }
+  
+  .app-icon {
+    width: 60px; /* Ícono más pequeño en móvil */
+    max-height: 60px;
+  }
+  
+  .app-title {
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) and (max-height: 700px) {
+  .login-container {
+    padding: 1.5rem 1rem; /* Padding mínimo en móvil con pantalla baja */
+  }
+  
+  .login-form {
+    padding: 2rem 1.5rem;
+  }
+  
+  .app-icon-container {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+  }
 }
