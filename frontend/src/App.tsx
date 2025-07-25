@@ -2,7 +2,7 @@
 import React from "react";
 
 // Importa componentes y funciones de react-router-dom para manejar rutas
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 
 // Importa el componente que se encarga de subir documentos
 import UploadDocumento from "./components/UploadDocumento";
@@ -18,6 +18,11 @@ import "./components/UploadDocumento.css";
 
 // Importa estilos generales de la aplicación
 import "./App.css";
+
+// Importa el componente que maneja la gestión de usuarios administradores
+import CreateAdminUser from './components/Admin/CreateAdminUser';
+
+import { Link } from 'react-router-dom';
 
 // Componente principal de la aplicación
 function App() {
@@ -36,6 +41,21 @@ function App() {
     }
     // Si el usuario cancela, no se hace nada y permanece en la página actual
   };
+
+  const NavigateButton: React.FC = () => {
+  const navigate = useNavigate();
+
+  return (
+    <div style={{ display: "flex", justifyContent: "center" }}>
+      <button
+        onClick={() => navigate("/crear-admin")}
+        className="bg-white text-purple-700 text-2xl font-bold px-8 py-4 rounded-xl shadow-lg border-2 border-purple-700 hover:bg-purple-100 transition-all duration-200"
+      >
+        Crear Admin
+      </button>
+    </div>
+  );
+};
 
   return (
     // Router envuelve toda la aplicación para habilitar la navegación entre rutas
@@ -70,8 +90,10 @@ function App() {
                 {/* Main: aquí se carga el componente que permite subir documentos */}
                 <main className="App-main">
                   <UploadDocumento />
-                </main>
 
+                  <NavigateButton />
+                </main>
+  
                 {/* Footer del sitio con información de versión */}
                 <footer className="App-footer">
                   <p>🏗️ DocuValle v1.0.0</p>
@@ -83,6 +105,16 @@ function App() {
 
         {/* Ruta por defecto: si el usuario entra a una ruta no definida, redirige a Login */}
         <Route path="*" element={<Navigate to="/login" />} />
+
+        {/* Ruta protegida para crear admin */}
+        <Route
+          path="/crear-admin"
+          element={
+            <ProtectedRoute>
+              <CreateAdminUser />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </Router>
   );
