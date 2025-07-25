@@ -627,6 +627,54 @@ app.get('/api/documents/:documentoId/details', async (req, res) => {
   }
 });
 
+// ENDPOINT: Estadísticas del dashboard
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    const stats = await documentService.obtenerEstadisticasDashboard();
+    res.json({ success: true, stats });
+  } catch (error) {
+    console.error('❌ Error obteniendo estadísticas del dashboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo estadísticas del dashboard',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+// ENDPOINT: Últimos 5 documentos procesados para el dashboard
+app.get('/api/dashboard/ultimos', async (req, res) => {
+  try {
+    const snapshot = await db
+      .collection('documentos')
+      .orderBy('fechaProcesamiento', 'desc')
+      .limit(5)
+      .get();
+
+    const documentos = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: data.id,
+        nombre: data.nombreArchivo,
+        fecha: data.fechaProcesamiento.toDate().toISOString().split('T')[0],
+        estado:
+          data.recomendacion === 'accept' ? 'aceptado' :
+          data.recomendacion === 'review' ? 'en_revision' :
+          data.recomendacion === 'reject' ? 'rechazado' : 'en_revision',
+      };
+    });
+
+    res.json({ success: true, documentos });
+  } catch (error) {
+    console.error('❌ Error obteniendo últimos documentos:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo últimos documentos',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
 // FUNCIONES AUXILIARES CORREGIDAS
 
 /**
