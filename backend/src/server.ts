@@ -812,7 +812,7 @@ app.get('/api/documents/:documentoId/details', async (req, res) => {
 });
 
 /**
- * Obtener documentos de un usuario con filtros avanzados (usa getUserDocuments)
+ * ENDPOINT: Obtener documentos de un usuario con filtros avanzados (de features_Nicolas)
  */
 app.post('/api/documents/user-documents', async (req, res) => {
   try {
@@ -825,6 +825,8 @@ app.post('/api/documents/user-documents', async (req, res) => {
         error: 'MISSING_USER_ID'
       });
     }
+
+    console.log(`🔍 Obteniendo documentos para usuario: ${userId}`);
 
     // Si no se envían filtros, usar undefined para obtener todos los documentos del usuario
     let filtrosProcesados = filtros;
@@ -842,6 +844,8 @@ app.post('/api/documents/user-documents', async (req, res) => {
 
     const documentos = await documentService.getUserDocuments(userId, filtrosProcesados);
 
+    console.log(`✅ Encontrados ${documentos.length} documentos para usuario ${userId}`);
+
     res.json({
       success: true,
       message: `📋 Encontrados ${documentos.length} documentos`,
@@ -855,6 +859,79 @@ app.post('/api/documents/user-documents', async (req, res) => {
     res.status(500).json({
       success: false,
       message: '❌ Error obteniendo documentos del usuario',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+// ENDPOINTS DEL DASHBOARD
+
+/**
+ * ENDPOINT: Estadísticas del dashboard
+ */
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    console.log('📊 Obteniendo estadísticas del dashboard...');
+    
+    const stats = await documentService.obtenerEstadisticasDashboard();
+    
+    console.log('✅ Estadísticas del dashboard obtenidas');
+    
+    res.json({ 
+      success: true, 
+      message: '📊 Estadísticas obtenidas exitosamente',
+      stats 
+    });
+  } catch (error) {
+    console.error('❌ Error obteniendo estadísticas del dashboard:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo estadísticas del dashboard',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+/**
+ * ENDPOINT: Últimos 5 documentos procesados para el dashboard
+ */
+app.get('/api/dashboard/ultimos', async (req, res) => {
+  try {
+    console.log('📋 Obteniendo últimos documentos para dashboard...');
+    
+    const snapshot = await db
+      .collection('documentos')
+      .orderBy('fechaProcesamiento', 'desc')
+      .limit(5)
+      .get();
+
+    const documentos = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: data.id,
+        nombre: data.nombreArchivo,
+        fecha: data.fechaProcesamiento.toDate().toISOString().split('T')[0],
+        estado:
+          data.recomendacion === 'accept' ? 'aceptado' :
+          data.recomendacion === 'review' ? 'en_revision' :
+          data.recomendacion === 'reject' ? 'rechazado' : 'en_revision',
+        usuarioAsignado: data.usuarioAsignado || 'Sin asignar',
+        scoreAutenticidad: data.scoreAutenticidad || 0
+      };
+    });
+
+    console.log(`✅ Obtenidos ${documentos.length} últimos documentos`);
+
+    res.json({ 
+      success: true, 
+      message: `📋 Últimos ${documentos.length} documentos obtenidos`,
+      documentos 
+    });
+  } catch (error) {
+    console.error('❌ Error obteniendo últimos documentos:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo últimos documentos',
       error: error instanceof Error ? error.message : 'Error desconocido'
     });
   }
