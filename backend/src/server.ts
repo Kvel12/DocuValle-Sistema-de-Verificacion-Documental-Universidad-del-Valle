@@ -64,7 +64,7 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     version: '3.0.0',
-    features: ['PDF_SUPPORT', 'MANUAL_MARKING', 'GEMINI_INTEGRATION', 'REAL_ANALYSIS'],
+    features: ['PDF_SUPPORT', 'MANUAL_MARKING', 'GEMINI_INTEGRATION', 'REAL_ANALYSIS', 'USER_MANAGEMENT'],
     geminiEnabled: geminiEnabled,
     services: {
       vision: 'active',
@@ -108,6 +108,135 @@ app.get('/api/test-vision', async (req, res) => {
     res.status(500).json({
       success: false,
       message: '❌ Error inesperado con servicios',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+// NUEVOS ENDPOINTS DE GESTIÓN DE USUARIOS
+
+/**
+ * Crear o obtener un usuario
+ */
+app.post('/api/users/create-or-get', async (req, res) => {
+  try {
+    console.log('👤 Creando o obteniendo usuario...');
+
+    const { nombreUsuario } = req.body;
+
+    if (!nombreUsuario || nombreUsuario.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'El nombre del usuario es obligatorio',
+        error: 'MISSING_USER_NAME'
+      });
+    }
+
+    const nombreUsuarioLimpio = nombreUsuario.trim();
+
+    // Buscar si el usuario ya existe
+    const usuariosRef = db.collection('usuarios');
+    const consultaExistente = await usuariosRef.where('nombreUsuario', '==', nombreUsuarioLimpio).get();
+
+    if (!consultaExistente.empty) {
+      // Usuario ya existe, devolverlo
+      const usuarioExistente = consultaExistente.docs[0];
+      const userData = usuarioExistente.data();
+
+      console.log(`✅ Usuario existente encontrado: ${nombreUsuarioLimpio}`);
+
+      return res.json({
+        success: true,
+        message: '👤 Usuario existente encontrado',
+        usuario: {
+          id: usuarioExistente.id,
+          nombreUsuario: userData.nombreUsuario,
+          fechaCreacion: userData.fechaCreacion.toDate().toISOString(),
+          documentosAsignados: userData.documentosAsignados || 0
+        },
+        esNuevo: false
+      });
+    }
+
+    // Crear nuevo usuario
+    const nuevoUsuarioId = uuidv4();
+    const nuevoUsuario = {
+      id: nuevoUsuarioId,
+      nombreUsuario: nombreUsuarioLimpio,
+      fechaCreacion: new Date(),
+      documentosAsignados: 0,
+      estado: 'activo'
+    };
+
+    await usuariosRef.doc(nuevoUsuarioId).set(nuevoUsuario);
+
+    console.log(`✅ Nuevo usuario creado: ${nombreUsuarioLimpio}`);
+
+    res.json({
+      success: true,
+      message: '✅ Usuario creado exitosamente',
+      usuario: {
+        id: nuevoUsuario.id,
+        nombreUsuario: nuevoUsuario.nombreUsuario,
+        fechaCreacion: nuevoUsuario.fechaCreacion.toISOString(),
+        documentosAsignados: nuevoUsuario.documentosAsignados
+      },
+      esNuevo: true
+    });
+
+  } catch (error) {
+    console.error('❌ Error creando usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error creando usuario',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+/**
+ * Listar todos los usuarios
+ */
+app.get('/api/users/list', async (req, res) => {
+  try {
+    console.log('📋 Listando usuarios...');
+
+    const usuariosRef = db.collection('usuarios');
+    const snapshot = await usuariosRef.orderBy('nombreUsuario', 'asc').get();
+
+    const usuarios: any[] = [];
+
+    for (const doc of snapshot.docs) {
+      const userData = doc.data();
+
+      // Contar documentos asignados a este usuario
+      const documentosSnapshot = await db.collection('documentos')
+        .where('usuarioAsignado', '==', userData.nombreUsuario)
+        .get();
+
+      usuarios.push({
+        id: doc.id,
+        nombreUsuario: userData.nombreUsuario,
+        fechaCreacion: userData.fechaCreacion.toDate().toISOString(),
+        documentosAsignados: documentosSnapshot.size,
+        estado: userData.estado || 'activo'
+      });
+    }
+
+    console.log(`✅ Encontrados ${usuarios.length} usuarios`);
+
+    res.json({
+      success: true,
+      message: `📋 Encontrados ${usuarios.length} usuarios`,
+      usuarios,
+      total: usuarios.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error listando usuarios:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error listando usuarios',
       error: error instanceof Error ? error.message : 'Error desconocido'
     });
   }
@@ -450,6 +579,9 @@ app.post('/api/documents/:documentoId/manual-review', async (req, res) => {
   }
 });
 
+/**
+ * ENDPOINT MEJORADO: Asignar documento a usuario (actualizado)
+ */
 app.post('/api/documents/:documentoId/assign', async (req, res) => {
   try {
     console.log('👤 Asignando documento a usuario...');
@@ -476,13 +608,42 @@ app.post('/api/documents/:documentoId/assign', async (req, res) => {
       });
     }
 
+    // Verificar si el usuario existe, si no, crearlo automáticamente
+    const usuariosRef = db.collection('usuarios');
+    const consultaUsuario = await usuariosRef.where('nombreUsuario', '==', nombreUsuario.trim()).get();
+
+    if (consultaUsuario.empty) {
+      // Crear usuario automáticamente
+      const nuevoUsuarioId = uuidv4();
+      const nuevoUsuario = {
+        id: nuevoUsuarioId,
+        nombreUsuario: nombreUsuario.trim(),
+        fechaCreacion: new Date(),
+        documentosAsignados: 0,
+        estado: 'activo'
+      };
+
+      await usuariosRef.doc(nuevoUsuarioId).set(nuevoUsuario);
+      console.log(`✅ Usuario creado automáticamente: ${nombreUsuario}`);
+    }
+
+    // Asignar documento
     await docRef.update({
-      usuarioAsignado: nombreUsuario,
+      usuarioAsignado: nombreUsuario.trim(),
       tipoDocumento: tipoDocumento || 'no_especificado',
       fechaAsignacion: new Date(),
       estado: 'asignado',
       fechaUltimaActualizacion: new Date()
     });
+
+    // Actualizar contador de documentos del usuario
+    const usuarioActualizado = await usuariosRef.where('nombreUsuario', '==', nombreUsuario.trim()).get();
+    if (!usuarioActualizado.empty) {
+      const usuarioDoc = usuarioActualizado.docs[0];
+      await usuarioDoc.ref.update({
+        documentosAsignados: FieldValue.increment(1)
+      });
+    }
 
     console.log(`✅ Documento ${documentoId} asignado a ${nombreUsuario}`);
 
@@ -507,19 +668,38 @@ app.post('/api/documents/:documentoId/assign', async (req, res) => {
   }
 });
 
-app.get('/api/documents/search/:nombreUsuario', async (req, res) => {
+/**
+ * ENDPOINT CORREGIDO: Búsqueda de documentos (más flexible)
+ */
+app.post('/api/documents/search', async (req, res) => {
   try {
-    console.log('🔍 Buscando documentos por usuario...');
+    console.log('🔍 Buscando documentos...');
 
-    const { nombreUsuario } = req.params;
+    const { nombreUsuario, fechaDesde, fechaHasta, limite } = req.body;
 
-    const snapshot = await db
-      .collection('documentos')
-      .where('usuarioAsignado', '==', nombreUsuario)
+    // Hacer que nombreUsuario sea opcional
+    let consulta = db.collection('documentos');
+
+    // Solo filtrar por usuario si se proporciona
+    if (nombreUsuario && nombreUsuario.trim() !== '') {
+      consulta = consulta.where('usuarioAsignado', '==', nombreUsuario.trim());
+      console.log(`   - Filtrando por usuario: ${nombreUsuario}`);
+    }
+
+    if (fechaDesde) {
+      consulta = consulta.where('fechaProcesamiento', '>=', new Date(fechaDesde));
+      console.log(`   - Fecha desde: ${fechaDesde}`);
+    }
+    if (fechaHasta) {
+      consulta = consulta.where('fechaProcesamiento', '<=', new Date(fechaHasta));
+      console.log(`   - Fecha hasta: ${fechaHasta}`);
+    }
+
+    consulta = consulta
       .orderBy('fechaProcesamiento', 'desc')
-      .limit(20)
-      .get();
+      .limit(limite || 50);
 
+    const snapshot = await consulta.get();
     const documentos: any[] = [];
 
     snapshot.forEach((doc: any) => {
@@ -527,34 +707,38 @@ app.get('/api/documents/search/:nombreUsuario', async (req, res) => {
       documentos.push({
         id: data.id,
         nombreArchivo: data.nombreArchivo,
-        tipoDocumento: data.tipoDocumento,
-        scoreAutenticidad: data.scoreAutenticidad,
-        recomendacion: data.recomendacion,
-        recomendacionManual: data.recomendacionManual,
-        estadoRevision: data.estadoRevision,
-        fechaProcesamiento: data.fechaProcesamiento.toDate().toISOString(),
-        fechaRevisionManual: data.fechaRevisionManual ? data.fechaRevisionManual.toDate().toISOString() : null,
-        estado: data.estado,
-        // NUEVO: Información de análisis híbrido
+        tipoDocumento: data.tipoDocumento || data.tipoDocumentoDetectado || 'no_especificado',
+        usuarioAsignado: data.usuarioAsignado || 'Sin asignar',
+        scoreAutenticidad: data.scoreAutenticidad || 0,
+        recomendacion: data.recomendacion || 'review',
+        recomendacionManual: data.recomendacionManual || null,
+        estadoRevision: data.estadoRevision || 'pendiente',
+        estado: data.estado || 'completado',
+        fechaProcesamiento: data.fechaProcesamiento ? data.fechaProcesamiento.toDate().toISOString() : new Date().toISOString(),
+        fechaAsignacion: data.fechaAsignacion ? data.fechaAsignacion.toDate().toISOString() : null,
         analisisGemini: data.analisisGemini || null
       });
     });
 
-    console.log(`✅ Encontrados ${documentos.length} documentos para ${nombreUsuario}`);
+    console.log(`✅ Encontrados ${documentos.length} documentos`);
 
     res.json({
       success: true,
       message: `📋 Encontrados ${documentos.length} documentos`,
-      usuario: nombreUsuario,
-      documentos: documentos,
-      total: documentos.length
+      documentos,
+      total: documentos.length,
+      filtros: {
+        nombreUsuario: nombreUsuario || 'todos',
+        fechaDesde,
+        fechaHasta,
+        limite: limite || 50
+      }
     });
-
   } catch (error) {
     console.error('❌ Error buscando documentos:', error);
     res.status(500).json({
       success: false,
-      message: '❌ Error buscando documentos',
+      message: 'Error buscando documentos',
       error: error instanceof Error ? error.message : 'Error desconocido'
     });
   }
@@ -585,8 +769,8 @@ app.get('/api/documents/:documentoId/details', async (req, res) => {
       tipoArchivo: data.tipoArchivo,
       tamanoArchivo: data.tamanoArchivo,
       archivoUrl: data.archivoUrl,
-      usuarioAsignado: data.usuarioAsignado,
-      tipoDocumento: data.tipoDocumento,
+      usuarioAsignado: data.usuarioAsignado || 'Sin asignar',
+      tipoDocumento: data.tipoDocumento || data.tipoDocumentoDetectado || 'no_especificado',
       textoExtraido: textoCompleto,
       scoreAutenticidad: data.scoreAutenticidad,
       recomendacion: data.recomendacion,
@@ -627,11 +811,77 @@ app.get('/api/documents/:documentoId/details', async (req, res) => {
   }
 });
 
-// ENDPOINT: Estadísticas del dashboard
+/**
+ * ENDPOINT: Obtener documentos de un usuario con filtros avanzados (de features_Nicolas)
+ */
+app.post('/api/documents/user-documents', async (req, res) => {
+  try {
+    const { userId, filtros } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId es obligatorio',
+        error: 'MISSING_USER_ID'
+      });
+    }
+
+    console.log(`🔍 Obteniendo documentos para usuario: ${userId}`);
+
+    // Si no se envían filtros, usar undefined para obtener todos los documentos del usuario
+    let filtrosProcesados = filtros;
+    if (!filtros || Object.keys(filtros).length === 0) {
+      filtrosProcesados = undefined;
+    } else {
+      // Convertir fechas de string a Date si vienen como string ISO
+      if (filtros.fechaDesde && typeof filtros.fechaDesde === 'string') {
+        filtrosProcesados.fechaDesde = new Date(filtros.fechaDesde);
+      }
+      if (filtros.fechaHasta && typeof filtros.fechaHasta === 'string') {
+        filtrosProcesados.fechaHasta = new Date(filtros.fechaHasta);
+      }
+    }
+
+    const documentos = await documentService.getUserDocuments(userId, filtrosProcesados);
+
+    console.log(`✅ Encontrados ${documentos.length} documentos para usuario ${userId}`);
+
+    res.json({
+      success: true,
+      message: `📋 Encontrados ${documentos.length} documentos`,
+      userId,
+      filtros: filtrosProcesados,
+      documentos,
+      total: documentos.length
+    });
+  } catch (error) {
+    console.error('❌ Error obteniendo documentos del usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Error obteniendo documentos del usuario',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+});
+
+// ENDPOINTS DEL DASHBOARD
+
+/**
+ * ENDPOINT: Estadísticas del dashboard
+ */
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
+    console.log('📊 Obteniendo estadísticas del dashboard...');
+    
     const stats = await documentService.obtenerEstadisticasDashboard();
-    res.json({ success: true, stats });
+    
+    console.log('✅ Estadísticas del dashboard obtenidas');
+    
+    res.json({ 
+      success: true, 
+      message: '📊 Estadísticas obtenidas exitosamente',
+      stats 
+    });
   } catch (error) {
     console.error('❌ Error obteniendo estadísticas del dashboard:', error);
     res.status(500).json({
@@ -642,9 +892,13 @@ app.get('/api/dashboard/stats', async (req, res) => {
   }
 });
 
-// ENDPOINT: Últimos 5 documentos procesados para el dashboard
+/**
+ * ENDPOINT: Últimos 5 documentos procesados para el dashboard
+ */
 app.get('/api/dashboard/ultimos', async (req, res) => {
   try {
+    console.log('📋 Obteniendo últimos documentos para dashboard...');
+    
     const snapshot = await db
       .collection('documentos')
       .orderBy('fechaProcesamiento', 'desc')
@@ -661,10 +915,18 @@ app.get('/api/dashboard/ultimos', async (req, res) => {
           data.recomendacion === 'accept' ? 'aceptado' :
           data.recomendacion === 'review' ? 'en_revision' :
           data.recomendacion === 'reject' ? 'rechazado' : 'en_revision',
+        usuarioAsignado: data.usuarioAsignado || 'Sin asignar',
+        scoreAutenticidad: data.scoreAutenticidad || 0
       };
     });
 
-    res.json({ success: true, documentos });
+    console.log(`✅ Obtenidos ${documentos.length} últimos documentos`);
+
+    res.json({ 
+      success: true, 
+      message: `📋 Últimos ${documentos.length} documentos obtenidos`,
+      documentos 
+    });
   } catch (error) {
     console.error('❌ Error obteniendo últimos documentos:', error);
     res.status(500).json({
@@ -896,7 +1158,7 @@ async function startServer() {
   app.listen(PORT, () => {
     console.log(`🚀 DocuValle Backend v3.0 ejecutándose en puerto ${PORT}`);
     console.log(`🌐 Health check: http://localhost:${PORT}/api/health`);
-    console.log(`🤖 Funcionalidades: PDF Support + Manual Review + Gemini Integration`);
+    console.log(`🤖 Funcionalidades: PDF Support + Manual Review + Gemini Integration + User Management`);
     console.log(`🧠 Gemini: ${process.env.GEMINI_API_KEY ? 'HABILITADO' : 'DESHABILITADO'}`);
   });
 }
